@@ -6,11 +6,18 @@
 [![License: MIT](https://img.shields.io/github/license/stavarengo/CLIProxyAPI-Expiring-Quota-First)](LICENSE)
 
 A scheduler plugin for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) that spends your Claude and Codex weekly quotas before they reset.
-Each new session, one conversation of a client such as Claude Code or the Codex CLI, goes to the account whose weekly quota resets soonest and stays there, across CLIProxyAPI restarts too.
 It is for setups where two or more Claude or Codex subscriptions sit behind one CLIProxyAPI and one account keeps hitting its weekly limit while another sits idle.
 
-It reads the quota from the rate-limit headers CLIProxyAPI already receives, so it holds no tokens and makes no network calls of its own.
-Requests for other providers, and routes that mix providers, are left to CLIProxyAPI's own routing.
+## What it does
+
+- Sends each new session, one conversation of a client such as Claude Code or the Codex CLI, to the account whose weekly quota resets soonest, so no quota expires unused while another account is being drained.
+- Keeps a session on its account, across CLIProxyAPI restarts too, and moves it only when that account is used up, rejected or gone.
+- Gives no new sessions to an account that is used up, nearly used up, or whose login was rejected. Claude's per-model weekly limits, such as the Opus one, count too.
+- Gives a Claude Code subagent the same account as the session that started it.
+- Starts in a shadow mode that only records what it would have picked, so you can check its choices before letting it route.
+- Writes every pick with its reason to a state file you can read, with session ids hashed.
+- Learns quota from the rate-limit headers CLIProxyAPI already receives, so it holds no tokens and makes no network calls of its own.
+- Leaves requests for other providers, and routes that mix providers, to CLIProxyAPI's own routing.
 
 ## Quick start
 
