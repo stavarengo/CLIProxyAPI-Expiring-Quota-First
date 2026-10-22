@@ -573,6 +573,9 @@ func (r *router) save() error {
 	if err == nil {
 		err = os.Rename(tmp, file)
 	}
+	if err == nil {
+		err = syncDir(filepath.Dir(file))
+	}
 	if err != nil {
 		r.mu.Lock()
 		r.dirty = true // retry on the next tick
@@ -582,7 +585,7 @@ func (r *router) save() error {
 	return nil
 }
 
-// writeSynced flushes before the rename, so a power cut leaves the old file or the new one, never an empty one.
+// writeSynced flushes the contents before the rename, and syncDir the rename itself, so a power cut leaves the old file or the new one, never an empty one and never the one before the latest save.
 func writeSynced(path string, raw []byte) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -593,6 +596,19 @@ func writeSynced(path string, raw []byte) error {
 		err = f.Sync()
 	}
 	if errClose := f.Close(); err == nil {
+		err = errClose
+	}
+	return err
+}
+
+// syncDir flushes a directory, which fsync on a file inside it does not do (fsync(2)); without it a rename can be undone by a power cut.
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	err = d.Sync()
+	if errClose := d.Close(); err == nil {
 		err = errClose
 	}
 	return err
