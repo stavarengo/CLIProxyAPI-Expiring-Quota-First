@@ -147,7 +147,8 @@ const (
 )
 
 // standing returns the account's rank for a new session on model, with the reason whenever it is not ready.
-// offered tells whether CLIProxyAPI still lists the account. CLIProxyAPI refreshes an expired token after its first 401 and drops a revoked login from the candidates, so a 401 makes the account unusable only once CLIProxyAPI has dropped it.
+// offered tells whether CLIProxyAPI still lists the account. CLIProxyAPI refreshes an expired token after its first 401 and retries on the same credential, so a 401 makes the account unusable only once CLIProxyAPI stops offering it.
+// Under its default settings that is what happens to a 401 the refresh did not cure, through its own 30-minute block; with host cooldowns turned off, an account can also be missing because it was filtered for this one request.
 func (r *router) standing(id, model string, offered bool, now time.Time) (standing, string) {
 	a := r.st.Accounts[id]
 	if a == nil {
