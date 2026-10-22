@@ -10,7 +10,7 @@ Each new session goes to the account whose weekly quota resets soonest and stays
 It is for setups where two or more Claude or Codex subscriptions sit behind one CLIProxyAPI and one account keeps hitting its weekly limit while another sits idle.
 
 It reads the quota from the rate-limit headers CLIProxyAPI already receives, so it holds no tokens and makes no network calls of its own.
-Other providers, and setups with a single account, are left to CLIProxyAPI's own routing.
+Requests for other providers, and routes that mix providers, are left to CLIProxyAPI's own routing.
 
 ## Quick start
 
@@ -74,19 +74,15 @@ flowchart TD
 
 Only the weekly quota counts; the five-hour limits are ignored.
 Among ready accounts, one with an unknown reset time goes first so traffic learns it, then the soonest weekly reset, then accounts whose responses carry no weekly quota, such as plain API keys.
-A session forgets its account after `ttl` idle, and Claude Code subagents carry their parent's session id, so they take the parent's account.
+A binding lasts until the session has been idle for `ttl`.
+Claude Code subagents carry their parent's session id, so they take the parent's account.
 
 ## Install
 
-Each release is tested with one CLIProxyAPI version.
-When the plugin interface differs, CLIProxyAPI logs `pluginhost: failed to load plugin` and routes with its own rules.
+Each release is built for the CLIProxyAPI version in `go.mod` at the time, shown in the badge above and in the release notes.
+When the plugin interface of your CLIProxyAPI differs, it logs `pluginhost: failed to load plugin` and routes with its own rules.
 
-| Plugin release | CLIProxyAPI |
-| -------------- | ----------- |
-| v0.1.1         | v8.0.33     |
-| v0.1.0         | v8.0.33     |
-
-Releases cover linux/amd64 and linux/arm64, built on Debian bookworm like the official `eceasy/cli-proxy-api` image; elsewhere they need glibc 2.36 or newer.
+Releases cover linux/amd64 and linux/arm64, built in the Debian release of the official `eceasy/cli-proxy-api` image, pinned in `build.sh`, so they need no newer glibc than that image has.
 For another platform, [build it yourself](#develop).
 
 The store install from the [quick start](#quick-start) checks the download against the release's `checksums.txt`, installs it into CLIProxyAPI's `plugins` folder and loads it without a restart.
@@ -98,16 +94,16 @@ The full set with its defaults, in CLIProxyAPI's `config.yaml`:
 
 ```yaml
 plugins:
-  enabled: true      # CLIProxyAPI's own flag; off while missing
+  enabled: true  # CLIProxyAPI's own flag; off while missing
   dir: "plugins"
   configs:
     expiring-quota-first:
-      enabled: true      # set by a store install; set it yourself after a hand install
-      priority: 0        # CLIProxyAPI's own; only matters with several scheduler plugins
-      mode: shadow       # shadow records what it would pick, active routes
-      ttl: 168h          # idle time before a session forgets its account
-      rebind_after: 15m  # how long a bound account may be missing before the session moves
-      min_remaining: 5   # percent of weekly quota under which an account gets no new sessions while a readier one exists
+      enabled: true
+      priority: 0       # order among scheduler plugins, CLIProxyAPI's own
+      mode: shadow      # or active
+      ttl: 168h
+      rebind_after: 15m
+      min_remaining: 5  # percent of the weekly quota
       state_file: "plugins/expiring-quota-first-data/state.json"  # relative to CLIProxyAPI's working directory, /CLIProxyAPI in the official image
 ```
 
@@ -116,19 +112,18 @@ Switching `mode` drops the session bindings, since a shadow binding names the ac
 
 ## State file
 
-JSON, written every ten seconds while something changed and on shutdown, with times in RFC 3339 UTC:
+JSON, written shortly after something changes and on shutdown, with times in RFC 3339 UTC:
 
 - `bindings`: each session, as a short hash so no raw session id lands on disk, to its `auth_id`, with `last_seen` and `missing_since`.
 - `accounts`: per credential id, the one the management API lists: `weekly_reset`, `weekly_used` as a fraction from 0 to 1, `full_until`, `model_full_until` per model family such as `opus`, `auth_failed` (401 or 403) with `auth_failed_at`, and `served`.
-- `recent_decisions`: the last 200 picks, oldest first, each with time, hashed session, model, `auth_id`, a short `reason` such as `new session; soonest weekly reset`, and `applied`, true only when the plugin routed the request, so never in shadow mode.
+- `recent_decisions`: the most recent picks, oldest first, each with time, hashed session, model, `auth_id`, a short `reason` such as `new session; soonest weekly reset`, and `applied`, true only when the plugin routed the request, so never in shadow mode.
 - `mode`: the mode the bindings were made in.
 
 A file that cannot be parsed is renamed to `state.json.corrupt` and the plugin starts fresh.
 
 ## Known limits
 
-- Only Claude and Codex routes are handled; other providers and mixed routes go to CLIProxyAPI's own routing.
-- A request with no session id, neither the one CLIProxyAPI derives nor an `X-Claude-Code-Session-Id`, `Session-Id`, `Session_id` or `X-Session-Id` header, is left to CLIProxyAPI.
+- A request with no session id, neither the one CLIProxyAPI derives nor one of the session id headers CLIProxyAPI itself accepts, is left to CLIProxyAPI.
 - An account's quota is unknown until it has served a request, and a per-model weekly limit, such as Claude's Opus limit, only after the first request it refuses.
 - Releases are Linux only.
 
@@ -140,7 +135,7 @@ The tests need the Go version in `go.mod` and a C compiler:
 go vet ./... && go test -race ./...
 ```
 
-`./build.sh --version <version>` reproduces the CI build and needs Docker and Bash 5.2.15 or newer: it builds, tests and zips both platforms into `dist/release`, then installs them with CLIProxyAPI's own plugin store code as a check.
+`./build.sh` reproduces the CI build inside Docker and checks the result with CLIProxyAPI's own plugin store code; `./build.sh --help` says what it writes where.
 For another platform, build on it with cgo enabled:
 
 ```bash
