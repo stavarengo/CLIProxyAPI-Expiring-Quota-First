@@ -328,9 +328,13 @@ func (r *router) observe(rec pluginapi.UsageRecord) {
 
 	switch {
 	case rec.Failed && (status == 401 || status == 403) && !cloudflareChallenge(rec):
-		a.AuthFailed, a.AuthFailedAt = status, now
+		a.AuthFailed, a.AuthFailedAt = status, answeredAt(rec, now)
 	case !rec.Failed:
-		a.AuthFailed, a.AuthFailedAt, a.Served = 0, time.Time{}, true
+		a.Served = true
+		// A long request dispatched before the rejection can finish after it and says nothing about the login now; CLIProxyAPI ignores such a success too, by execution order.
+		if rec.RequestedAt.IsZero() || !rec.RequestedAt.Before(a.AuthFailedAt) {
+			a.AuthFailed, a.AuthFailedAt = 0, time.Time{}
+		}
 	}
 	if hasWeekly {
 		a.WeeklyReset = w.reset
@@ -373,6 +377,14 @@ func (r *router) observe(rec pluginapi.UsageRecord) {
 	if after, _ := json.Marshal(a); string(after) != string(before) {
 		r.dirty = true
 	}
+}
+
+// answeredAt is when the upstream answered: usage records are queued, so the plugin's own clock can run late by the queue delay.
+func answeredAt(rec pluginapi.UsageRecord, now time.Time) time.Time {
+	if rec.RequestedAt.IsZero() {
+		return now
+	}
+	return rec.RequestedAt.Add(rec.Latency).UTC()
 }
 
 // cloudflareChallenge tells Cloudflare's bot challenge, served as a 403, from a rejected login, by the marks CLIProxyAPI itself looks for (isCloudflareChallengeErrorMessage in sdk/cliproxy/auth/conductor_cooldown.go).

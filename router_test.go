@@ -458,6 +458,21 @@ func TestRejectedLoginMovesBoundSessionNow(t *testing.T) {
 	}
 }
 
+func TestAnOlderRequestsLateSuccessDoesNotClearARejection(t *testing.T) {
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	r := testRouter(t, &now)
+	r.observe(pluginapi.UsageRecord{AuthID: "a", Failed: true, Failure: pluginapi.UsageFailure{StatusCode: 403}, RequestedAt: now.Add(-2 * time.Second), Latency: time.Second})
+	// A request dispatched a minute before the rejection finishes after it: the login was still good back then, not now.
+	r.observe(pluginapi.UsageRecord{AuthID: "a", RequestedAt: now.Add(-time.Minute), Latency: 70 * time.Second})
+	if s, _ := r.standing("a", "", true, now); s != unusable {
+		t.Fatalf("an older request's success cleared the rejection: %v", s)
+	}
+	r.observe(pluginapi.UsageRecord{AuthID: "a", RequestedAt: now.Add(time.Second), Latency: time.Second})
+	if s, _ := r.standing("a", "", true, now); s != ready {
+		t.Fatalf("a later request's success did not clear the rejection: %v", s)
+	}
+}
+
 func TestCloudflareChallengeIsNotARejectedLogin(t *testing.T) {
 	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
