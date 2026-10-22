@@ -559,6 +559,28 @@ func TestEveryAccountUnusableLeavesItToCLIProxyAPI(t *testing.T) {
 	}
 }
 
+func TestStateFileHoldsNoKeysOrRawHeaders(t *testing.T) {
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	r := testRouter(t, &now)
+	// What CLIProxyAPI hands over with a pick and a usage record: the client's request headers and its proxy key.
+	req := pickReq("session-raw-id", "a")
+	req.Options.Headers["Authorization"] = []string{"Bearer client-proxy-key"}
+	r.pick(req)
+	r.observe(pluginapi.UsageRecord{AuthID: "a", APIKey: "client-proxy-key", ResponseHeaders: map[string][]string{"Anthropic-Ratelimit-Unified-7d-Reset": {"1893456000"}}})
+	if err := r.save(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(r.cfg.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"client-proxy-key", "session-raw-id"} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatalf("state file holds %q", secret)
+		}
+	}
+}
+
 func TestStateTimesAreUTC(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Mode = "active"

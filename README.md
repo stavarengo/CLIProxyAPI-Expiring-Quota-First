@@ -18,7 +18,7 @@ A session below is one conversation of a client such as Claude Code or the Codex
 - **Subagents follow their parent:** A Claude Code subagent gets the same account as the session that started it.
 - **Shadow mode:** The plugin starts by only recording what it would have picked, so you can check its choices before letting it route.
 - **Readable state file:** Every pick is written there with its reason, with session ids hashed.
-- **No credentials, no calls:** Quota is learned from the rate-limit headers CLIProxyAPI already receives, so the plugin holds no tokens and makes no network calls of its own.
+- **Nothing stored, no calls:** Quota is learned from the rate-limit headers CLIProxyAPI already receives, and the plugin makes no network calls of its own. CLIProxyAPI does hand it each request's headers and the client's proxy key along with the pick and the usage record; the plugin reads the session id from them and writes none of it to disk.
 - **Scoped to Claude and Codex:** Requests for other providers, and routes that mix providers, stay with CLIProxyAPI's own routing.
 
 ## Quick start
