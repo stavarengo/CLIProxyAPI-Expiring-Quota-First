@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -618,7 +619,11 @@ func writeSynced(path string, raw []byte) error {
 }
 
 // syncDir flushes a directory, which fsync on a file inside it does not do (fsync(2)); without it a rename can be undone by a power cut.
+// Windows refuses to flush a directory opened for reading, and a directory cannot be opened for writing, so there the rename is left to the file system.
 func syncDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
 	d, err := os.Open(dir)
 	if err != nil {
 		return err
