@@ -1,5 +1,5 @@
-// Command expiring-quota-first is a CLIProxyAPI scheduler plugin: new sessions go to the account whose weekly quota resets soonest, and a session keeps its account across restarts.
-// It learns quota from the response headers CLIProxyAPI already receives, so it holds no tokens and makes no network calls.
+// Command expiring-quota-first is a CLIProxyAPI scheduler plugin; README.md says what it does and how it picks an account.
+// This file is the plugin ABI boundary: C entry points, the method dispatch, config handling and the save loop. router.go holds the picking.
 package main
 
 /*
@@ -39,6 +39,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -48,7 +50,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// version is the release tag without its v; scripts/build-plugin.sh sets it with -ldflags, and CLIProxyAPI shows it as the installed version.
+// version is the release tag without its v, set at build time with -ldflags; CLIProxyAPI shows it as the installed version.
 var version = "0.0.0-dev"
 
 var (
@@ -225,6 +227,7 @@ func active() *router {
 }
 
 func registration() any {
+	d := defaultConfig()
 	return map[string]any{
 		"schema_version": pluginabi.SchemaVersion,
 		"metadata": pluginapi.Metadata{
@@ -234,14 +237,26 @@ func registration() any {
 			GitHubRepository: "https://github.com/stavarengo/CLIProxyAPI-Expiring-Quota-First",
 			ConfigFields: []pluginapi.ConfigField{
 				{Name: "mode", Type: pluginapi.ConfigFieldTypeEnum, EnumValues: []string{"shadow", "active"}, Description: "shadow only records decisions; active routes."},
-				{Name: "ttl", Type: pluginapi.ConfigFieldTypeString, Description: "Idle time before a session forgets its account (default 168h)."},
-				{Name: "rebind_after", Type: pluginapi.ConfigFieldTypeString, Description: "How long a bound account may be unavailable before the session moves (default 15m)."},
-				{Name: "min_remaining", Type: pluginapi.ConfigFieldTypeNumber, Description: "Weekly percent left below which new sessions avoid an account while another is ready (default 5)."},
-				{Name: "state_file", Type: pluginapi.ConfigFieldTypeString, Description: "Where bindings and reset times are kept."},
+				{Name: "ttl", Type: pluginapi.ConfigFieldTypeString, Description: "Idle time before a session forgets its account (default " + shortDuration(d.TTL) + ")."},
+				{Name: "rebind_after", Type: pluginapi.ConfigFieldTypeString, Description: "How long a bound account may be unavailable before the session moves (default " + shortDuration(d.RebindAfter) + ")."},
+				{Name: "min_remaining", Type: pluginapi.ConfigFieldTypeNumber, Description: "Weekly percent left below which new sessions avoid an account while another is ready (default " + strconv.FormatFloat(d.MinRemaining, 'f', -1, 64) + ")."},
+				{Name: "state_file", Type: pluginapi.ConfigFieldTypeString, Description: "Where bindings, what was learned about each account and the recent picks are kept (default " + d.StateFile + ")."},
 			},
 		},
 		"capabilities": map[string]bool{"scheduler": true, "usage_plugin": true},
 	}
+}
+
+// shortDuration writes 168h, not 168h0m0s, so a default reads the way config.yaml spells it.
+func shortDuration(d time.Duration) string {
+	s := d.String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
 }
 
 type envelope struct {
