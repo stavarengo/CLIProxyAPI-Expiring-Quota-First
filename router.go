@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -80,7 +81,9 @@ type state struct {
 	Mode     string              `json:"mode"`
 	Bindings map[string]*binding `json:"bindings"`
 	Accounts map[string]*account `json:"accounts"`
-	Recent   []decision          `json:"recent_decisions"`
+	// Models maps a route alias, which is what a pick names, to the upstream model it ran as, which is what usage reports; a per-model limit is keyed by the latter.
+	Models map[string]string `json:"models,omitempty"`
+	Recent []decision        `json:"recent_decisions"`
 }
 
 type router struct {
@@ -93,7 +96,7 @@ type router struct {
 }
 
 func newRouter(cfg config) *router {
-	r := &router{cfg: cfg, now: func() time.Time { return time.Now().UTC() }, st: state{Mode: cfg.Mode, Bindings: map[string]*binding{}, Accounts: map[string]*account{}}}
+	r := &router{cfg: cfg, now: func() time.Time { return time.Now().UTC() }, st: state{Mode: cfg.Mode, Bindings: map[string]*binding{}, Accounts: map[string]*account{}, Models: map[string]string{}}}
 	raw, err := os.ReadFile(cfg.StateFile)
 	if err != nil {
 		return r
@@ -118,6 +121,7 @@ func newRouter(cfg config) *router {
 			r.st.Accounts[k] = a
 		}
 	}
+	maps.Copy(r.st.Models, loaded.Models)
 	r.st.Recent = loaded.Recent
 	r.dirty = loaded.Mode != cfg.Mode
 	return r
@@ -160,6 +164,7 @@ func (r *router) standing(id, model string, offered bool, now time.Time) (standi
 	if !a.FullUntil.IsZero() && now.Before(a.FullUntil) {
 		return unusable, "weekly limit used up"
 	}
+	model = r.upstream(model)
 	if fam, until, ok := a.modelFull(model); ok && now.Before(until) {
 		return unusable, fam + " weekly limit used up"
 	}
@@ -176,6 +181,14 @@ func (r *router) standing(id, model string, offered bool, now time.Time) (standi
 		return low, "under " + strconv.FormatFloat(r.cfg.MinRemaining, 'f', -1, 64) + "% weekly left"
 	}
 	return ready, ""
+}
+
+// upstream resolves a route alias such as best to the model it last ran as, so the pick is checked against the family usage reported.
+func (r *router) upstream(model string) string {
+	if u, ok := r.st.Models[strings.ToLower(model)]; ok {
+		return u
+	}
+	return model
 }
 
 func (a *account) modelFull(model string) (string, time.Time, bool) {
@@ -325,6 +338,10 @@ func (r *router) observe(rec pluginapi.UsageRecord) {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if alias := strings.ToLower(strings.TrimSpace(rec.Alias)); alias != "" && rec.Model != "" && alias != strings.ToLower(rec.Model) && r.st.Models[alias] != rec.Model {
+		r.st.Models[alias] = rec.Model
+		r.dirty = true
+	}
 	a := r.st.Accounts[rec.AuthID]
 	if a == nil {
 		a = &account{}

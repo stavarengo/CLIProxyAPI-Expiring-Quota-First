@@ -414,6 +414,27 @@ func TestScopedBucketWithoutResetFallsBackToRetryAfter(t *testing.T) {
 	}
 }
 
+func TestRouteAliasFindsThePerModelLimit(t *testing.T) {
+	// A pick names the route model, an alias such as best; usage reports the upstream model with the alias beside it.
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	r := testRouter(t, &now)
+	claudeReset(r, "a", now.Add(time.Hour))
+	claudeReset(r, "b", now.Add(96*time.Hour))
+	if got := r.pick(modelReq("s1", "best", "a", "b")).AuthID; got != "a" {
+		t.Fatalf("first pick %q", got)
+	}
+	r.observe(pluginapi.UsageRecord{AuthID: "a", Model: "claude-fable-5-1", Alias: "best", Failed: true, Failure: pluginapi.UsageFailure{StatusCode: 429}, ResponseHeaders: map[string][]string{
+		"Anthropic-Ratelimit-Unified-7d_oi-Status": {"rejected"},
+		"Anthropic-Ratelimit-Unified-7d_oi-Reset":  {strconv.FormatInt(now.Add(2*time.Hour).Unix(), 10)},
+	}})
+	if got := r.pick(modelReq("s2", "best", "a", "b")).AuthID; got != "b" {
+		t.Fatalf("new session for the alias picked %q, want b (a is out of the model best runs as)", got)
+	}
+	if got := r.pick(modelReq("s3", "claude-sonnet-5", "a", "b")).AuthID; got != "a" {
+		t.Fatalf("sonnet session picked %q, want a", got)
+	}
+}
+
 func TestModelFamily(t *testing.T) {
 	for model, want := range map[string]string{"claude-fable-5-1": "fable", "Claude-Opus-5": "opus", "claude-haiku-4-5-20251001": "haiku", "gpt-5.5-codex": "", "": ""} {
 		if got := modelFamily(model); got != want {

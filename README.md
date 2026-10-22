@@ -130,6 +130,7 @@ JSON, written shortly after something changes and on shutdown, with times in RFC
 
 - `bindings`: each session, as a short hash so no raw session id lands on disk, to its `auth_id`, with `last_seen` and `missing_since`.
 - `accounts`: what the response headers have said about each account, keyed by the credential id the management API lists. `weekly_reset` and `weekly_used`, a fraction from 0 to 1, describe the current weekly quota. `full_until` is set while the weekly quota is known to be used up, and `model_full_until` says the same per model family. `auth_failed` is the status, 401 or 403, of the last rejected login with no success since, received at `auth_failed_at`. `served` is true once the account has answered a request.
+- `models`: each route alias seen in usage, such as a `best` that maps to Fable, to the upstream model it ran as, so a per-model limit also covers picks that name the alias.
 - `recent_decisions`: the most recent picks, oldest first, each with time, hashed session, model, `auth_id`, a short `reason` such as `new session; soonest weekly reset`, and `applied`, true only when the plugin routed the request, so never in shadow mode.
 - `mode`: the mode the bindings were made in, since a mode switch drops them.
 
