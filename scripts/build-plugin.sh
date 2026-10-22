@@ -42,6 +42,7 @@ buildPlatform()
   local -r goos="${1:?goos is required}"
   local -r goarch="${2:?goarch is required}"
   local -r outFile="${3:?outFile is required}"
+  local -r version="${4:?version is required}"
 
   local cc="gcc"
   if [[ "$goarch" == "arm64" ]]; then
@@ -50,7 +51,7 @@ buildPlatform()
   readonly cc
 
   mkdir -p -- "$(dirname -- "$outFile")"
-  CGO_ENABLED=1 GOOS="$goos" GOARCH="$goarch" CC="$cc" go build -trimpath -buildvcs=false -buildmode=c-shared -o "$outFile" .
+  CGO_ENABLED=1 GOOS="$goos" GOARCH="$goarch" CC="$cc" go build -trimpath -buildvcs=false -buildmode=c-shared -ldflags "-X main.version=$version" -o "$outFile" .
 }
 
 zipPlatform()
@@ -96,7 +97,7 @@ main()
   for platform in "${PLATFORMS[@]}"; do
     goos="${platform%/*}"
     goarch="${platform#*/}"
-    buildPlatform "$goos" "$goarch" "$distDir/${goos}_${goarch}/$PLUGIN_ID.so"
+    buildPlatform "$goos" "$goarch" "$distDir/${goos}_${goarch}/$PLUGIN_ID.so" "$version"
     zipPlatform "$distDir/${goos}_${goarch}/$PLUGIN_ID.so" "$releaseDir/${PLUGIN_ID}_${version}_${goos}_${goarch}.zip" "$sourceDateEpoch"
   done
   (cd -- "$releaseDir" && sha256sum -- *.zip >|checksums.txt)

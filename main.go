@@ -48,6 +48,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// version is the release tag without its v; scripts/build-plugin.sh sets it with -ldflags, and CLIProxyAPI shows it as the installed version.
+var version = "0.0.0-dev"
+
 var (
 	mu      sync.Mutex
 	current *router
@@ -226,7 +229,7 @@ func registration() any {
 		"schema_version": pluginabi.SchemaVersion,
 		"metadata": pluginapi.Metadata{
 			Name:             "expiring-quota-first",
-			Version:          "0.2.0",
+			Version:          version,
 			Author:           "stavarengo",
 			GitHubRepository: "https://github.com/stavarengo/CLIProxyAPI-Expiring-Quota-First",
 			ConfigFields: []pluginapi.ConfigField{
