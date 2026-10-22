@@ -123,6 +123,10 @@ func handle(method string, raw []byte) (out []byte, err error) {
 	case pluginabi.MethodPluginShutdown:
 		stop()
 		return okEnvelope(struct{}{})
+	case pluginabi.MethodPluginQuiesce:
+		// CLIProxyAPI sends this before it loads a replacement copy, which reads the state file; this copy keeps answering from memory until it is retired, but writes no more.
+		stop()
+		return okEnvelope(struct{}{})
 	case pluginabi.MethodSchedulerPick:
 		var req pluginapi.SchedulerPickRequest
 		if err := json.Unmarshal(raw, &req); err != nil {
