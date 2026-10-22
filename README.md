@@ -138,6 +138,7 @@ A file that cannot be parsed is renamed to `state.json.corrupt` and the plugin s
 - An account's quota is unknown until it has served a request, and a per-model weekly limit only after a request to that model has shown it.
 - Codex's weekly window is read from the `X-Codex-Primary-*` and `X-Codex-Secondary-*` headers as the account's one main limit. Codex also reports which limit a response was counted against, in `X-Codex-Active-Limit`, and whether those headers switch to that limit when it is a per-model one is unconfirmed; if they do, the account's record blends two limits.
 - Of Claude's per-model weekly limits only Fable's is read, from its `7d_oi` headers. Claude Code's code names limits for other models too, but no capture shows which responses would carry them, so they are ignored until one does.
+- Under CLIProxyAPI's Home mode, the control-plane mode its `-home-jwt` flag turns on, every pick goes through Home and no scheduler plugin is asked, so the plugin loads but never decides.
 - Releases are Linux only.
 
 ## Develop
