@@ -476,6 +476,23 @@ func TestRejectedLoginMovesBoundSessionNow(t *testing.T) {
 	}
 }
 
+func TestCloudflareChallengeIsNotARejectedLogin(t *testing.T) {
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	r := testRouter(t, &now)
+	r.observe(pluginapi.UsageRecord{AuthID: "a", Failed: true, Failure: pluginapi.UsageFailure{StatusCode: 403, Body: `<html><head><title>Just a moment...</title><script src="/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page/v1"></script>`}})
+	if s, why := r.standing("a", "", true, now); s != ready {
+		t.Fatalf("challenge page marked a: %v %s", s, why)
+	}
+	r.observe(pluginapi.UsageRecord{AuthID: "b", Failed: true, Failure: pluginapi.UsageFailure{StatusCode: 403}, ResponseHeaders: map[string][]string{"Cf-Mitigated": {"challenge"}}})
+	if s, why := r.standing("b", "", true, now); s != ready {
+		t.Fatalf("challenge header marked b: %v %s", s, why)
+	}
+	r.observe(pluginapi.UsageRecord{AuthID: "c", Failed: true, Failure: pluginapi.UsageFailure{StatusCode: 403, Body: `{"error":{"type":"permission_error"}}`}})
+	if s, _ := r.standing("c", "", true, now); s != unusable {
+		t.Fatalf("a real 403 left c %v", s)
+	}
+}
+
 func TestRefreshable401KeepsTheSession(t *testing.T) {
 	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)

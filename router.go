@@ -313,7 +313,7 @@ func (r *router) observe(rec pluginapi.UsageRecord) {
 	before, _ := json.Marshal(a)
 
 	switch {
-	case rec.Failed && (status == 401 || status == 403):
+	case rec.Failed && (status == 401 || status == 403) && !cloudflareChallenge(rec):
 		a.AuthFailed, a.AuthFailedAt = status, now
 	case !rec.Failed:
 		a.AuthFailed, a.AuthFailedAt, a.Served = 0, time.Time{}, true
@@ -359,6 +359,16 @@ func (r *router) observe(rec pluginapi.UsageRecord) {
 	if after, _ := json.Marshal(a); string(after) != string(before) {
 		r.dirty = true
 	}
+}
+
+// cloudflareChallenge tells Cloudflare's bot challenge, served as a 403, from a rejected login, by the marks CLIProxyAPI itself looks for (isCloudflareChallengeErrorMessage in sdk/cliproxy/auth/conductor_cooldown.go).
+func cloudflareChallenge(rec pluginapi.UsageRecord) bool {
+	if header(rec.ResponseHeaders, "Cf-Mitigated") != "" {
+		return true
+	}
+	body := strings.ToLower(rec.Failure.Body)
+	return strings.Contains(body, "challenge-platform") || strings.Contains(body, "cf-mitigated") || strings.Contains(body, "cloudflare challenge") ||
+		strings.Contains(body, "just a moment") && strings.Contains(body, "cloudflare")
 }
 
 type weekly struct {
