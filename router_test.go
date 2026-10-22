@@ -384,6 +384,19 @@ func TestScopedWeeklyBucketOnlyBlocksThatModel(t *testing.T) {
 	}
 }
 
+func TestUnknownScopedBucketsAreLeftAlone(t *testing.T) {
+	// Whether a 7d_sonnet bucket rides only on Sonnet responses is unconfirmed, so its rejection must not mark any family.
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	r := testRouter(t, &now)
+	r.observe(pluginapi.UsageRecord{AuthID: "a", Model: "claude-opus-5", Failed: true, Failure: pluginapi.UsageFailure{StatusCode: 429}, ResponseHeaders: map[string][]string{
+		"Anthropic-Ratelimit-Unified-7d_sonnet-Status": {"rejected"},
+		"Anthropic-Ratelimit-Unified-7d_sonnet-Reset":  {strconv.FormatInt(now.Add(time.Hour).Unix(), 10)},
+	}})
+	if len(r.st.Accounts["a"].ModelFullUntil) != 0 {
+		t.Fatalf("an unknown bucket marked %v", r.st.Accounts["a"].ModelFullUntil)
+	}
+}
+
 func TestScopedBucketWithoutResetFallsBackToRetryAfter(t *testing.T) {
 	// 1jehuang/jcode#1501: the only rejected 7d_oi capture lists utilization, status and retry-after, but no 7d_oi-reset.
 	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)

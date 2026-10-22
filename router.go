@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,10 +32,6 @@ func explicitSessionID(raw string) string {
 	}
 	return raw
 }
-
-// scopedWeeklyStatus matches the status header of a per-model weekly bucket, Anthropic-Ratelimit-Unified-7d_<scope>-*, such as 7d_oi for the top model.
-// Claude sends the bucket only on requests to the model it scopes, so the request's model names the family, not the scope token.
-var scopedWeeklyStatus = regexp.MustCompile(`^anthropic-ratelimit-unified-7d_([a-z]+)-status$`)
 
 type config struct {
 	Mode         string        `yaml:"mode"`          // shadow (default) or active
@@ -453,28 +448,24 @@ func sharedWeeklyRejected(h map[string][]string) (time.Time, bool) {
 	return unixHeader(header(h, "Anthropic-Ratelimit-Unified-Reset"))
 }
 
-// scopedWeeklyFull reports whether a per-model weekly bucket in the response is used up, and until when.
+// scopedWeeklyFull reports whether the response's per-model weekly bucket is used up, and until when.
+// 7d_oi, the top model's own weekly limit, is the only such bucket seen in a capture, and it comes only on requests to that model, so the request's model names the family.
+// Other scopes, such as a 7d_sonnet named in client code, are left alone until a capture shows which requests carry them.
 func scopedWeeklyFull(h map[string][]string, now time.Time) (time.Time, bool) {
-	for k := range h {
-		m := scopedWeeklyStatus.FindStringSubmatch(strings.ToLower(k))
-		if m == nil {
-			continue
-		}
-		base := "Anthropic-Ratelimit-Unified-7d_" + m[1] + "-"
-		full := strings.EqualFold(header(h, base+"Status"), "rejected")
-		if u, err := strconv.ParseFloat(header(h, base+"Utilization"), 64); err == nil && u >= 1 {
-			full = true
-		}
-		if !full {
-			continue
-		}
-		if until, ok := unixHeader(header(h, base+"Reset")); ok {
-			return until, true
-		}
-		// The one public capture of a rejected 7d_oi bucket lists Retry-After and no reset; whether the reset is really absent there is unconfirmed.
-		if sec, err := strconv.ParseInt(header(h, "Retry-After"), 10, 64); err == nil && sec > 0 {
-			return now.Add(time.Duration(sec) * time.Second), true
-		}
+	const base = "Anthropic-Ratelimit-Unified-7d_oi-"
+	full := strings.EqualFold(header(h, base+"Status"), "rejected")
+	if u, err := strconv.ParseFloat(header(h, base+"Utilization"), 64); err == nil && u >= 1 {
+		full = true
+	}
+	if !full {
+		return time.Time{}, false
+	}
+	if until, ok := unixHeader(header(h, base+"Reset")); ok {
+		return until, true
+	}
+	// The one public capture of a rejected 7d_oi bucket lists Retry-After and no reset; whether the reset is really absent there is unconfirmed.
+	if sec, err := strconv.ParseInt(header(h, "Retry-After"), 10, 64); err == nil && sec > 0 {
+		return now.Add(time.Duration(sec) * time.Second), true
 	}
 	return time.Time{}, false
 }
