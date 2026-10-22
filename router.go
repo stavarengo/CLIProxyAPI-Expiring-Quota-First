@@ -371,7 +371,7 @@ func (r *router) observe(rec pluginapi.UsageRecord) {
 	if sharedRejected {
 		a.FullUntil = sharedUntil
 	}
-	scopedUntil, scopedFull := scopedWeeklyFull(h)
+	scopedUntil, scopedFull := scopedWeeklyFull(h, now)
 	switch fam := modelFamily(rec.Model); {
 	case scopedFull && fam != "":
 		markModelFull(fam, scopedUntil)
@@ -454,7 +454,7 @@ func sharedWeeklyRejected(h map[string][]string) (time.Time, bool) {
 }
 
 // scopedWeeklyFull reports whether a per-model weekly bucket in the response is used up, and until when.
-func scopedWeeklyFull(h map[string][]string) (time.Time, bool) {
+func scopedWeeklyFull(h map[string][]string, now time.Time) (time.Time, bool) {
 	for k := range h {
 		m := scopedWeeklyStatus.FindStringSubmatch(strings.ToLower(k))
 		if m == nil {
@@ -470,6 +470,10 @@ func scopedWeeklyFull(h map[string][]string) (time.Time, bool) {
 		}
 		if until, ok := unixHeader(header(h, base+"Reset")); ok {
 			return until, true
+		}
+		// The one public capture of a rejected 7d_oi bucket lists Retry-After and no reset; whether the reset is really absent there is unconfirmed.
+		if sec, err := strconv.ParseInt(header(h, "Retry-After"), 10, 64); err == nil && sec > 0 {
+			return now.Add(time.Duration(sec) * time.Second), true
 		}
 	}
 	return time.Time{}, false

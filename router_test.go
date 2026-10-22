@@ -384,6 +384,23 @@ func TestScopedWeeklyBucketOnlyBlocksThatModel(t *testing.T) {
 	}
 }
 
+func TestScopedBucketWithoutResetFallsBackToRetryAfter(t *testing.T) {
+	// 1jehuang/jcode#1501: the only rejected 7d_oi capture lists utilization, status and retry-after, but no 7d_oi-reset.
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	r := testRouter(t, &now)
+	r.observe(pluginapi.UsageRecord{AuthID: "a", Model: "claude-fable-5-1", Failed: true, Failure: pluginapi.UsageFailure{StatusCode: 429}, ResponseHeaders: map[string][]string{
+		"Anthropic-Ratelimit-Unified-7d_oi-Status":      {"rejected"},
+		"Anthropic-Ratelimit-Unified-7d_oi-Utilization": {"1.0"},
+		"Retry-After": {"236495"},
+	}})
+	if s, why := r.standing("a", "claude-fable-5-1", true, now); s != unusable {
+		t.Fatalf("rejected bucket without a reset header marked nothing: %v %s", s, why)
+	}
+	if until := r.st.Accounts["a"].ModelFullUntil["fable"]; !until.Equal(now.Add(236495 * time.Second)) {
+		t.Fatalf("mark ends at %v, want now plus Retry-After", until)
+	}
+}
+
 func TestModelFamily(t *testing.T) {
 	for model, want := range map[string]string{"claude-fable-5-1": "fable", "Claude-Opus-5": "opus", "claude-haiku-4-5-20251001": "haiku", "gpt-5.5-codex": "", "": ""} {
 		if got := modelFamily(model); got != want {
