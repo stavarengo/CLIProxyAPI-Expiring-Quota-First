@@ -93,6 +93,7 @@ Each release is built for the CLIProxyAPI version in `go.mod` at the time, shown
 When the plugin interface of your CLIProxyAPI differs, CLIProxyAPI logs `pluginhost: failed to load plugin` and routes with its own rules.
 
 Releases cover linux/amd64 and linux/arm64, built on the same Debian version as the official `eceasy/cli-proxy-api` image, pinned in `build.sh`, so they need no newer glibc than that image has.
+The arm64 library is cross-compiled on amd64 and checked for its machine type and entry symbol only; no arm64 host has loaded it in the release pipeline, so whether it loads there is unconfirmed, and a report either way is welcome.
 For another platform, [build it yourself](#develop).
 
 The store install from the [quick start](#quick-start) checks the download against the release's `checksums.txt`, installs it into CLIProxyAPI's `plugins` folder and loads it without a restart.
