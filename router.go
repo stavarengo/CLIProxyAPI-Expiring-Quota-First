@@ -368,7 +368,7 @@ func (r *router) observe(rec pluginapi.UsageRecord) {
 		// Once the marked reset has passed, a window with room is the new window.
 		case !now.Before(a.FullUntil):
 			a.FullUntil = time.Time{}
-		// Before that, only a served request from another window lifts the mark. A failed one proves nothing, however its reset differs: during vendor incidents Codex has reported resets days apart on consecutive responses (openai/codex#23190).
+		// Before that, only a served request from another window lifts the mark. A failed one proves nothing, however its reset differs: during a vendor incident Codex has reported weekly resets days apart within minutes to hours (openai/codex#23190).
 		// Same-window successes do not count either, since a long request started before the limit was hit can finish after it; an hour covers the drift of Codex's relative resets.
 		case !rec.Failed && w.reset.Sub(a.FullUntil).Abs() > time.Hour:
 			a.FullUntil = time.Time{}
@@ -457,7 +457,7 @@ func weeklyWindow(h map[string][]string, now time.Time) (weekly, bool) {
 }
 
 // sharedWeeklyRejected reports whether Claude's shared weekly window refused the request, and until when.
-// Only the claim seven_day means that window; five_hour and seven_day_overage_included are other limits, and per-model claims such as seven_day_opus exist in Claude Code's label map but have never been seen on the wire.
+// Only the claim seven_day means that window; five_hour and seven_day_overage_included are other limits, and per-model claims such as seven_day_opus may exist, but no public report has shown them on the wire.
 func sharedWeeklyRejected(h map[string][]string) (time.Time, bool) {
 	if !strings.EqualFold(header(h, "Anthropic-Ratelimit-Unified-Status"), "rejected") || header(h, "Anthropic-Ratelimit-Unified-Representative-Claim") != "seven_day" {
 		return time.Time{}, false
@@ -466,8 +466,8 @@ func sharedWeeklyRejected(h map[string][]string) (time.Time, bool) {
 }
 
 // scopedWeeklyFull reports whether the response's per-model weekly bucket is used up, and until when.
-// 7d_oi, the top model's own weekly limit, is the only such bucket seen in a capture, and it comes only on requests to that model, so the request's model names the family.
-// Other scopes, such as a 7d_sonnet named in client code, are left alone until a capture shows which requests carry them.
+// 7d_oi, the top model's own weekly limit, is the only such bucket a public report shows (1jehuang/jcode#1501); the report shows it on a request to that model, so the request's model names the family.
+// Other scopes, such as a 7d_sonnet, may exist and are left alone until a public report shows which requests carry them.
 func scopedWeeklyFull(h map[string][]string, now time.Time) (time.Time, bool) {
 	const base = "Anthropic-Ratelimit-Unified-7d_oi-"
 	full := strings.EqualFold(header(h, base+"Status"), "rejected")
@@ -480,7 +480,7 @@ func scopedWeeklyFull(h map[string][]string, now time.Time) (time.Time, bool) {
 	if until, ok := unixHeader(header(h, base+"Reset")); ok {
 		return until, true
 	}
-	// The one public capture of a rejected 7d_oi bucket lists Retry-After and no reset; whether the reset is really absent there is unconfirmed.
+	// The one public report of a rejected 7d_oi bucket (1jehuang/jcode#1501) lists Retry-After and no reset; whether the reset was absent or left out of the list is unconfirmed.
 	if sec, err := strconv.ParseInt(header(h, "Retry-After"), 10, 64); err == nil && sec > 0 {
 		return now.Add(time.Duration(sec) * time.Second), true
 	}

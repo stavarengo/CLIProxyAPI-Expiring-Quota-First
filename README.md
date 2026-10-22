@@ -15,7 +15,7 @@ With it, each new session, meaning each new Claude Code or Codex CLI conversatio
 
 - Sessions are sticky. A conversation stays on its account, across CLIProxyAPI restarts too, and moves only when that account is used up, its login is rejected, or CLIProxyAPI stops offering it.
 - New sessions avoid accounts that are used up, nearly used up, or whose login was rejected, as long as another account is ready.
-- Claude's separate weekly limit on its top model is tracked as well, so a session for that model avoids an account that is out of it. As of 2026-10 that model is Fable, on Max plans.
+- Claude's separate weekly limit on its top model is tracked as well, so a session for that model avoids an account that is out of it. As of 2026-10 that model is Fable.
 - A Claude Code subagent gets the same account as the conversation that started it.
 - It starts in shadow mode: it records each pick it would have made, with the reason, in a [state file](docs/state-file.md), and routes nothing until you switch it to active. Until then CLIProxyAPI routes as before.
 - The plugin's data stays on your machine. It learns quota from the rate-limit headers CLIProxyAPI already receives, makes no network calls of its own, and writes no keys or raw session ids to disk.
@@ -57,7 +57,7 @@ A session keeps its account until it has been idle for a week, by default.
 
 ## Try it
 
-Releases are for Linux and built for the CLIProxyAPI version in the badge above; [Install](docs/install.md) has the details.
+Releases are for Linux, and each one's notes name the CLIProxyAPI version it was built for; the badge above shows the version pinned on `main`. [Install](docs/install.md) has the details.
 
 1. Add this repository's `registry.json` as a plugin store source in CLIProxyAPI's `config.yaml`. Skip this step when the plugin store page of your management console already lists the plugin:
 

@@ -4,7 +4,7 @@ Which CLIProxyAPI versions and platforms a release of Expiring Quota First fits,
 
 ## Compatibility
 
-Each release is built for the CLIProxyAPI version in `go.mod` at the time, shown in the README's badge and in the release notes.
+Each release is built for the CLIProxyAPI version pinned in `go.mod` at its tag, and its release notes name that version. The README's badge shows the version pinned on `main`, which the next release will use.
 When the plugin interface of your CLIProxyAPI differs, CLIProxyAPI logs `pluginhost: failed to load plugin` and routes with its own rules.
 
 ## Platforms

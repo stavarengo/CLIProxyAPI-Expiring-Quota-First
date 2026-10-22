@@ -123,7 +123,7 @@ func TestCodexWeeklyWindow(t *testing.T) {
 	}
 }
 
-// codexWeekly sends the weekly window in the primary slot, the shape seen since 2026-09.
+// codexWeekly sends the weekly window in the primary slot, the current layout; the older one put it in the secondary slot.
 func codexWeekly(r *router, id string, at time.Time, usedPercent string, failed bool) {
 	rec := pluginapi.UsageRecord{AuthID: id, Failed: failed, ResponseHeaders: map[string][]string{
 		"X-Codex-Primary-Window-Minutes": {"10080"},
@@ -331,7 +331,7 @@ func TestRejectedWeeklyClaimMovesBoundSessionNow(t *testing.T) {
 func TestOnlyTheSevenDayClaimMarksTheSharedWeek(t *testing.T) {
 	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
-	// five_hour and seven_day_overage_included are other limits; seven_day_opus is a label in Claude Code's client code that no capture has shown on the wire, so it marks nothing either.
+	// five_hour and seven_day_overage_included are other limits; seven_day_opus is a per-model claim no public report has shown on the wire, so it marks nothing either.
 	for _, claim := range []string{"five_hour", "seven_day_overage_included", "seven_day_opus"} {
 		rejected(r, "a", "claude-opus-5", claim, now.Add(time.Hour))
 		if s, why := r.standing("a", "claude-opus-5", true, now); s != ready {
@@ -340,7 +340,7 @@ func TestOnlyTheSevenDayClaimMarksTheSharedWeek(t *testing.T) {
 	}
 }
 
-// scopedWeekly sends the headers Claude adds on a request to a model with its own weekly bucket, as captured for Fable: the shared 7d window has room, 7d_oi is the scoped one.
+// scopedWeekly sends the headers Claude adds on a request to a model with its own weekly bucket, as reported for Fable in 1jehuang/jcode#1501: the shared 7d window has room, 7d_oi is the scoped one.
 func scopedWeekly(r *router, id, model, status, used string, until time.Time, failed bool) {
 	rec := pluginapi.UsageRecord{AuthID: id, Model: model, Failed: failed, ResponseHeaders: map[string][]string{
 		"Anthropic-Ratelimit-Unified-7d-Reset":             {strconv.FormatInt(until.Add(72*time.Hour).Unix(), 10)},
@@ -398,7 +398,7 @@ func TestUnknownScopedBucketsAreLeftAlone(t *testing.T) {
 }
 
 func TestScopedBucketWithoutResetFallsBackToRetryAfter(t *testing.T) {
-	// 1jehuang/jcode#1501: the only rejected 7d_oi capture lists utilization, status and retry-after, but no 7d_oi-reset.
+	// The header list in 1jehuang/jcode#1501, the one public report of a rejected 7d_oi bucket, shows utilization, status and retry-after and no 7d_oi-reset; whether the reset was absent or left out of the list is unconfirmed.
 	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	r.observe(pluginapi.UsageRecord{AuthID: "a", Model: "claude-fable-5-1", Failed: true, Failure: pluginapi.UsageFailure{StatusCode: 429}, ResponseHeaders: map[string][]string{
@@ -627,9 +627,9 @@ func TestStateFileHoldsNoKeysOrRawHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"client-proxy-key", "session-raw-id"} {
-		if strings.Contains(string(raw), secret) {
-			t.Fatalf("state file holds %q", secret)
+	for _, leak := range []string{"client-proxy-key", "session-raw-id"} {
+		if strings.Contains(string(raw), leak) {
+			t.Fatalf("state file holds %q", leak)
 		}
 	}
 }
