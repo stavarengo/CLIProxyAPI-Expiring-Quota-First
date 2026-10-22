@@ -1,6 +1,6 @@
 package pluginstore
 
-// scripts/verify-release.sh copies this file into CLIProxyAPI's internal/pluginstore package, so a release is checked by the code that installs it.
+// Go skips a testdata directory, so this file is not a package of this module: scripts/verify-release.sh copies it into CLIProxyAPI's internal/pluginstore package, so a release is checked by the code that installs it.
 
 import (
 	"context"

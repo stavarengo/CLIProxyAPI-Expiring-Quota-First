@@ -21,7 +21,7 @@ printHelp()
 Usage: ${0##*/} --dir <dir> --version <version>
        ${0##*/} --tag <tag>
 
-Checks a release with the plugin store installer code of the CLIProxyAPI version in go.mod: clones that version and runs verify/release_verify_test.go inside its internal/pluginstore package.
+Checks a release with the plugin store installer code of the CLIProxyAPI version in go.mod: clones that version and runs testdata/release_verify_test.go inside its internal/pluginstore package.
 Also checks that registry.json parses and names this plugin as a GitHub release install. Needs go and git.
 
 Modes:
@@ -100,7 +100,7 @@ main()
 
   printf 'Checking with the plugin store code of CLIProxyAPI %s\n' "$cliproxyapiVersion"
   cloneUpstream "$cliproxyapiVersion" "$workDir/CLIProxyAPI"
-  cp -- "$repoDir/verify/release_verify_test.go" "$workDir/CLIProxyAPI/internal/pluginstore/"
+  cp -- "$repoDir/testdata/release_verify_test.go" "$workDir/CLIProxyAPI/internal/pluginstore/"
 
   local absoluteDir=""
   if [[ -n "$dir" ]]; then
