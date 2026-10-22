@@ -118,6 +118,9 @@ plugins:
       state_file: "plugins/expiring-quota-first-data/state.json"  # relative to CLIProxyAPI's working directory, /CLIProxyAPI in the official image
 ```
 
+In the official image the default `state_file` lands in `/CLIProxyAPI/plugins`, which the Docker Compose file that ships with CLIProxyAPI mounts from the host, so the state survives a recreated container.
+If you start the container another way, or set another `dir`, choose a `state_file` on a mounted path, or bindings and learned quota start over with each new container.
+
 Config changes are picked up live without losing what was learned.
 Switching `mode` drops the session bindings, since a shadow binding names the account the plugin would have picked, not the one CLIProxyAPI used.
 
