@@ -14,12 +14,25 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 )
 
-// Session headers in the order CLIProxyAPI itself prefers them.
+// Session headers read when CLIProxyAPI attached no session identity itself, which happens for picks made outside the request path, such as the Codex live client's.
 var sessionHeaders = []string{"X-Claude-Code-Session-Id", "Session-Id", "Session_id", "X-Session-Id"}
+
+// explicitSessionID applies CLIProxyAPI's own rule for a client-sent session id (NormalizeExplicitID in sdk/cliproxy/session/identity.go): no control characters, at most 256 bytes once trimmed.
+func explicitSessionID(raw string) string {
+	if strings.ContainsFunc(raw, unicode.IsControl) {
+		return ""
+	}
+	raw = strings.TrimSpace(raw)
+	if len(raw) > 256 {
+		return ""
+	}
+	return raw
+}
 
 // modelClaim matches a per-model weekly limit named in the representative claim, seven_day_<family>; multi-word claims such as seven_day_overage_included are not model limits.
 var modelClaim = regexp.MustCompile(`^seven_day_([a-z]+)$`)
@@ -514,7 +527,7 @@ func sessionKeys(provider string, req pluginapi.SchedulerPickRequest) (key, pare
 	parent, _ := req.Options.Metadata["parent_session_id"].(string)
 	if sid == "" {
 		for _, name := range sessionHeaders {
-			if v := header(req.Options.Headers, name); v != "" {
+			if v := explicitSessionID(header(req.Options.Headers, name)); v != "" {
 				sid = v
 				if name == "X-Claude-Code-Session-Id" {
 					sid = "claude:" + v

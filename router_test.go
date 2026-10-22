@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -189,6 +190,19 @@ func TestSubagentInheritsParentAccount(t *testing.T) {
 	sub.Options.Metadata = map[string]any{"canonical_session_id": "claude:s1:agent:x", "parent_session_id": "claude:s1"}
 	if got := r.pick(sub).AuthID; got != "b" {
 		t.Fatalf("subagent picked %q, want its parent's b", got)
+	}
+}
+
+func TestHeaderFallbackRejectsWhatCLIProxyAPIRejects(t *testing.T) {
+	now := time.Now()
+	r := testRouter(t, &now)
+	for name, sid := range map[string]string{"oversized": strings.Repeat("x", 257), "control character": "s1\nabc"} {
+		if r.pick(pickReq(sid, "a")).Handled {
+			t.Fatalf("bound a session to an %s id CLIProxyAPI would have dropped", name)
+		}
+	}
+	if !r.pick(pickReq("  "+strings.Repeat("x", 256)+"  ", "a")).Handled {
+		t.Fatal("rejected an id of 256 bytes with surrounding spaces, which CLIProxyAPI accepts")
 	}
 }
 
