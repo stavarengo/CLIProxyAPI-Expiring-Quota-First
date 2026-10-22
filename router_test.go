@@ -123,6 +123,42 @@ func TestCodexWeeklyWindow(t *testing.T) {
 	}
 }
 
+// codexWeekly sends the weekly window in the primary slot, the shape seen since September 2026.
+func codexWeekly(r *router, id string, at time.Time, usedPercent string, failed bool) {
+	rec := pluginapi.UsageRecord{AuthID: id, Failed: failed, ResponseHeaders: map[string][]string{
+		"X-Codex-Primary-Window-Minutes": {"10080"},
+		"X-Codex-Primary-Reset-At":       {strconv.FormatInt(at.Unix(), 10)},
+		"X-Codex-Primary-Used-Percent":   {usedPercent},
+	}}
+	if failed {
+		rec.Failure = pluginapi.UsageFailure{StatusCode: 429}
+	}
+	r.observe(rec)
+}
+
+func TestUsedUpMarkOutlivesAResetThatJumps(t *testing.T) {
+	// openai/codex#23190: a week at 5% resetting in six days, then a 429 at 100% whose reset is four days earlier; responses during the incident carry either value.
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	r := testRouter(t, &now)
+	codexWeekly(r, "a", now.Add(6*24*time.Hour), "5", false)
+	codexWeekly(r, "a", now.Add(2*24*time.Hour), "100", true)
+	if s, _ := r.standing("a", "", true, now); s != unusable {
+		t.Fatalf("429 at 100%% left a %v", s)
+	}
+	codexWeekly(r, "a", now.Add(6*24*time.Hour), "5", true)
+	if s, _ := r.standing("a", "", true, now); s != unusable {
+		t.Fatalf("a failed response with another reset lifted the mark: %v", s)
+	}
+	codexWeekly(r, "a", now.Add(2*24*time.Hour), "98", false)
+	if s, _ := r.standing("a", "", true, now); s != unusable {
+		t.Fatalf("a late success from the used-up window lifted the mark: %v", s)
+	}
+	codexWeekly(r, "a", now.Add(6*24*time.Hour), "5", false)
+	if s, _ := r.standing("a", "", true, now); s != ready {
+		t.Fatalf("a served request from another window did not lift the mark: %v", s)
+	}
+}
+
 func TestNoSessionHeaderLeavesItToCLIProxyAPI(t *testing.T) {
 	now := time.Now()
 	r := testRouter(t, &now)

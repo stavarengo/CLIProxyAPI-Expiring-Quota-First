@@ -324,8 +324,13 @@ func (r *router) observe(rec pluginapi.UsageRecord) {
 		switch {
 		case w.full:
 			a.FullUntil = w.reset
-		// A reset more than an hour past the used-up one is a new window. Within a window the reset stays put, except that Codex's relative resets drift by seconds.
-		case !a.FullUntil.IsZero() && w.reset.Sub(a.FullUntil) > time.Hour:
+		case a.FullUntil.IsZero():
+		// Once the marked reset has passed, a window with room is the new window.
+		case !now.Before(a.FullUntil):
+			a.FullUntil = time.Time{}
+		// Before that, only a served request from another window lifts the mark. A failed one proves nothing, however its reset differs: during vendor incidents Codex has reported resets days apart on consecutive responses (openai/codex#23190).
+		// Same-window successes do not count either, since a long request started before the limit was hit can finish after it; an hour covers the drift of Codex's relative resets.
+		case !rec.Failed && w.reset.Sub(a.FullUntil).Abs() > time.Hour:
 			a.FullUntil = time.Time{}
 		}
 	}
