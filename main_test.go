@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -31,6 +32,32 @@ func configureWith(t *testing.T, yaml string) {
 	raw := []byte(`{"config_yaml":"` + base64.StdEncoding.EncodeToString([]byte(yaml)) + `"}`)
 	if err := configure(raw); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestReconfigureKeepsWhatWasLearnedWithoutTheStateFile(t *testing.T) {
+	dir := t.TempDir()
+	configureWith(t, "mode: shadow\nstate_file: "+filepath.Join(dir, "old.json"))
+	t.Cleanup(stop)
+	r := active()
+	claudeReset(r, "a", time.Now().Add(time.Hour))
+	r.pick(pickReq("s1", "a"))
+	// Nothing has been saved to the new path; what was learned must still be in memory, and the mode switch alone drops the shadow bindings.
+	configureWith(t, "mode: active\nstate_file: "+filepath.Join(dir, "new.json"))
+	if active() != r {
+		t.Fatal("reconfigure swapped the router instead of changing it in place")
+	}
+	if _, ok := r.st.Accounts["a"]; !ok {
+		t.Fatal("reconfigure lost the account learned just before it")
+	}
+	if len(r.st.Bindings) != 0 || r.st.Mode != "active" {
+		t.Fatalf("mode switch kept shadow bindings: %v in %s", r.st.Bindings, r.st.Mode)
+	}
+	if err := r.save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "new.json")); err != nil {
+		t.Fatalf("the next save did not go to the new state file: %v", err)
 	}
 }
 

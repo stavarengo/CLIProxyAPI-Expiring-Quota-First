@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -248,23 +247,6 @@ func TestUnreadableStateFileIsKeptAside(t *testing.T) {
 	}
 	if raw, err := os.ReadFile(cfg.StateFile + ".corrupt"); err != nil || string(raw) != `{"mode":` {
 		t.Fatalf("damaged file not kept aside: %q, %v", raw, err)
-	}
-}
-
-func TestReconfigureKeepsWhatTheOldRouterLearned(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "state.json")
-	conf := func(mode string) {
-		raw := []byte(`{"config_yaml":"` + base64.StdEncoding.EncodeToString([]byte("mode: "+mode+"\nstate_file: "+file)) + `"}`)
-		if err := configure(raw); err != nil {
-			t.Fatal(err)
-		}
-	}
-	conf("shadow")
-	t.Cleanup(stop)
-	claudeReset(active(), "a", time.Now().Add(time.Hour))
-	conf("active") // no tick has saved yet: only the old router's final save carries a
-	if _, ok := active().st.Accounts["a"]; !ok {
-		t.Fatal("reconfigure lost the account the old router had just learned")
 	}
 }
 

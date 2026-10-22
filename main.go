@@ -173,12 +173,17 @@ func configure(raw []byte) error {
 	if cfg.MinRemaining < 0 || cfg.MinRemaining > 100 {
 		return fmt.Errorf("expiring-quota-first config: min_remaining must be a percentage, got %v", cfg.MinRemaining)
 	}
-	stop()
 	mu.Lock()
 	defer mu.Unlock()
-	current = newRouter(cfg)
-	stopper, stopped = make(chan struct{}), make(chan struct{})
-	go saveLoop(current, stopper, stopped)
+	if current == nil {
+		current = newRouter(cfg)
+	} else {
+		current.reconfigure(cfg)
+	}
+	if stopper == nil {
+		stopper, stopped = make(chan struct{}), make(chan struct{})
+		go saveLoop(current, stopper, stopped)
+	}
 	return nil
 }
 
@@ -195,7 +200,7 @@ func saveLoop(r *router, done, finished chan struct{}) {
 	save := func() {
 		err := r.save()
 		if msg := fmt.Sprint(err); err != nil && msg != lastErr {
-			log.Printf("expiring-quota-first: cannot save state to %s: %v", r.cfg.StateFile, err)
+			log.Printf("expiring-quota-first: %v", err)
 			lastErr = msg
 		} else if err == nil {
 			lastErr = ""
@@ -212,7 +217,7 @@ func saveLoop(r *router, done, finished chan struct{}) {
 	}
 }
 
-// stop waits for the final save, so a router started next reads what this one last knew; the lock is not held meanwhile, so picks keep flowing.
+// stop ends the save loop and waits for its final save; the lock is not held meanwhile, so picks keep flowing.
 func stop() {
 	mu.Lock()
 	done, finished := stopper, stopped

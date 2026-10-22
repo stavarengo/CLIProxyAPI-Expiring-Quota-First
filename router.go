@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -115,6 +116,19 @@ func newRouter(cfg config) *router {
 	r.st.Recent = loaded.Recent
 	r.dirty = loaded.Mode != cfg.Mode
 	return r
+}
+
+// reconfigure applies a live config change to the running router. What it has learned stays in memory, so a pick or usage record arriving meanwhile is never lost to a swap.
+func (r *router) reconfigure(cfg config) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if cfg.Mode != r.st.Mode {
+		// Shadow-mode bindings name accounts CLIProxyAPI never actually used, so an active run starts without them.
+		r.st.Bindings = map[string]*binding{}
+		r.st.Mode = cfg.Mode
+	}
+	r.dirty = r.dirty || cfg != r.cfg
+	r.cfg = cfg
 }
 
 // standing ranks how fit an account is for a new session, best first.
@@ -541,24 +555,26 @@ func (r *router) save() error {
 	}
 	raw, err := json.Marshal(r.st)
 	r.dirty = false
+	file := r.cfg.StateFile
 	r.mu.Unlock()
 	if err != nil {
 		return err
 	}
-	tmp := r.cfg.StateFile + ".tmp"
-	err = os.MkdirAll(filepath.Dir(r.cfg.StateFile), 0o700)
+	tmp := file + ".tmp"
+	err = os.MkdirAll(filepath.Dir(file), 0o700)
 	if err == nil {
 		err = writeSynced(tmp, raw)
 	}
 	if err == nil {
-		err = os.Rename(tmp, r.cfg.StateFile)
+		err = os.Rename(tmp, file)
 	}
 	if err != nil {
 		r.mu.Lock()
 		r.dirty = true // retry on the next tick
 		r.mu.Unlock()
+		return fmt.Errorf("cannot save state to %s: %w", file, err)
 	}
-	return err
+	return nil
 }
 
 // writeSynced flushes before the rename, so a power cut leaves the old file or the new one, never an empty one.
