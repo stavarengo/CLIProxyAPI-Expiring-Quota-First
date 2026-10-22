@@ -22,7 +22,7 @@ func testRouter(t *testing.T, now *time.Time) *router {
 }
 
 func pickReq(session string, ids ...string) pluginapi.SchedulerPickRequest {
-	// Shaped like what CLIProxyAPI v8.0.33 actually sends: Provider empty, the route's provider in Providers.
+	// Shaped like what CLIProxyAPI v8.0.33 sends for a plain Claude route: Provider empty, the route's provider in Providers.
 	req := pluginapi.SchedulerPickRequest{Providers: []string{"claude"}, Options: pluginapi.SchedulerOptions{Headers: map[string][]string{"X-Claude-Code-Session-Id": {session}}}}
 	for _, id := range ids {
 		req.Candidates = append(req.Candidates, pluginapi.SchedulerAuthCandidate{ID: id, Provider: "claude"})
@@ -35,7 +35,7 @@ func claudeReset(r *router, id string, at time.Time) {
 }
 
 func TestNewSessionsGoToSoonestResetAndStay(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	claudeReset(r, "a", now.Add(96*time.Hour))
 	claudeReset(r, "b", now.Add(20*time.Hour))
@@ -43,7 +43,7 @@ func TestNewSessionsGoToSoonestResetAndStay(t *testing.T) {
 	if got := r.pick(pickReq("s1", "a", "b")).AuthID; got != "b" {
 		t.Fatalf("new session picked %q, want b (resets soonest)", got)
 	}
-	// b's reset passes, a Codex-style reset moves it a week out: s1 must stay, a new session moves.
+	// b's weekly window rolls over and its next reset is a week out: s1 must stay on b, a new session goes to a.
 	claudeReset(r, "b", now.Add(168*time.Hour))
 	if got := r.pick(pickReq("s1", "a", "b")).AuthID; got != "b" {
 		t.Fatalf("existing session moved to %q", got)
@@ -54,7 +54,7 @@ func TestNewSessionsGoToSoonestResetAndStay(t *testing.T) {
 }
 
 func TestUnknownAccountsGetASessionFirst(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	claudeReset(r, "a", now.Add(time.Hour))
 	if got := r.pick(pickReq("s1", "a", "b")).AuthID; got != "b" {
@@ -63,7 +63,7 @@ func TestUnknownAccountsGetASessionFirst(t *testing.T) {
 }
 
 func TestFailoverThenRebind(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	r.pick(pickReq("s1", "a"))
 	if got := r.pick(pickReq("s1", "b")).AuthID; got != "b" {
@@ -80,7 +80,7 @@ func TestFailoverThenRebind(t *testing.T) {
 }
 
 func TestBindingsSurviveRestart(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	claudeReset(r, "a", now.Add(time.Hour))
 	claudeReset(r, "b", now.Add(2*time.Hour))
@@ -97,7 +97,7 @@ func TestBindingsSurviveRestart(t *testing.T) {
 }
 
 func TestShadowModeDoesNotRoute(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	r.cfg.Mode = "shadow"
 	if resp := r.pick(pickReq("s1", "a")); resp.Handled {
@@ -109,7 +109,7 @@ func TestShadowModeDoesNotRoute(t *testing.T) {
 }
 
 func TestCodexWeeklyWindow(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	got, ok := weeklyWindow(map[string][]string{
 		"X-Codex-Primary-Window-Minutes":        {"300"},
 		"X-Codex-Primary-Reset-At":              {"1"},
@@ -123,7 +123,7 @@ func TestCodexWeeklyWindow(t *testing.T) {
 	}
 }
 
-func TestNoSessionHeaderLeavesItToCPA(t *testing.T) {
+func TestNoSessionHeaderLeavesItToCLIProxyAPI(t *testing.T) {
 	now := time.Now()
 	r := testRouter(t, &now)
 	req := pickReq("", "a")
@@ -139,7 +139,7 @@ func keyOf(req pluginapi.SchedulerPickRequest) string {
 }
 
 func TestSubagentInheritsParentAccount(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	claudeReset(r, "a", now.Add(96*time.Hour))
 	claudeReset(r, "b", now.Add(20*time.Hour))
@@ -166,7 +166,7 @@ func TestHeaderFallbackMatchesCanonicalKey(t *testing.T) {
 }
 
 func TestShadowBindingsDoNotCarryIntoActive(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	r.cfg.Mode, r.st.Mode = "shadow", "shadow"
 	claudeReset(r, "a", now.Add(time.Hour))
@@ -254,7 +254,7 @@ func modelReq(session, model string, ids ...string) pluginapi.SchedulerPickReque
 }
 
 func TestUsedUpAccountGetsNoNewSessionUntilANewWindowShows(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	claudeWeekly(r, "a", now.Add(2*time.Hour), "1.0")
 	claudeWeekly(r, "b", now.Add(96*time.Hour), "0.2")
@@ -282,7 +282,7 @@ func TestUsedUpAccountGetsNoNewSessionUntilANewWindowShows(t *testing.T) {
 }
 
 func TestRejectedWeeklyClaimMovesBoundSessionNow(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	claudeReset(r, "a", now.Add(time.Hour))
 	claudeReset(r, "b", now.Add(2*time.Hour))
@@ -297,7 +297,7 @@ func TestRejectedWeeklyClaimMovesBoundSessionNow(t *testing.T) {
 }
 
 func TestFiveHourRejectionIsNotAWeeklyLimit(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	rejected(r, "a", "claude-opus-5", "five_hour", now.Add(time.Hour))
 	rejected(r, "a", "claude-opus-5", "seven_day_overage_included", now.Add(time.Hour))
@@ -307,7 +307,7 @@ func TestFiveHourRejectionIsNotAWeeklyLimit(t *testing.T) {
 }
 
 func TestLowHeadroomAvoidedForNewSessionsOnly(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	claudeWeekly(r, "a", now.Add(time.Hour), "0.5")
 	claudeWeekly(r, "b", now.Add(96*time.Hour), "0.2")
@@ -326,7 +326,7 @@ func TestLowHeadroomAvoidedForNewSessionsOnly(t *testing.T) {
 }
 
 func TestPassedResetBeatsLowHeadroom(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	claudeWeekly(r, "a", now.Add(time.Hour), "1.0")
 	claudeWeekly(r, "b", now.Add(96*time.Hour), "0.97")
@@ -338,7 +338,7 @@ func TestPassedResetBeatsLowHeadroom(t *testing.T) {
 }
 
 func TestModelWeeklyLimitOnlyBlocksThatModel(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	claudeReset(r, "a", now.Add(time.Hour))
 	claudeReset(r, "b", now.Add(96*time.Hour))
@@ -370,7 +370,7 @@ func authFailure(r *router, id string, status int) {
 
 func TestRejectedLoginMovesBoundSessionNow(t *testing.T) {
 	for _, status := range []int{401, 403} {
-		now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+		now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 		r := testRouter(t, &now)
 		claudeReset(r, "a", now.Add(time.Hour))
 		claudeReset(r, "b", now.Add(2*time.Hour))
@@ -389,12 +389,12 @@ func TestRejectedLoginMovesBoundSessionNow(t *testing.T) {
 }
 
 func TestRefreshable401KeepsTheSession(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	claudeReset(r, "a", now.Add(time.Hour))
 	claudeReset(r, "b", now.Add(2*time.Hour))
 	r.pick(pickReq("s1", "a", "b"))
-	// An expired token: CLIProxyAPI refreshes it and keeps offering a, and the retry's success arrives later.
+	// a's login has expired, so CLIProxyAPI refreshes it and keeps offering a, and the retry's success arrives later.
 	authFailure(r, "a", 401)
 	if got := r.pick(pickReq("s1", "a", "b")).AuthID; got != "a" {
 		t.Fatalf("token refresh moved the session to %q", got)
@@ -404,8 +404,8 @@ func TestRefreshable401KeepsTheSession(t *testing.T) {
 	}
 }
 
-func TestRejectedLoginIsALastResortAfterCPACooldown(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+func TestRejectedLoginIsALastResortOnceTheMarkAges(t *testing.T) {
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	authFailure(r, "a", 403)
 	if s, _ := r.standing("a", "", true, now); s != unusable {
@@ -422,7 +422,7 @@ func TestRejectedLoginIsALastResortAfterCPACooldown(t *testing.T) {
 }
 
 func TestAccountWithoutWeeklyHeadersStopsWinningNewSessions(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	claudeReset(r, "b", now.Add(96*time.Hour))
 	r.observe(pluginapi.UsageRecord{AuthID: "a"}) // e.g. an API key: answers, never reports a weekly window
@@ -431,8 +431,8 @@ func TestAccountWithoutWeeklyHeadersStopsWinningNewSessions(t *testing.T) {
 	}
 }
 
-func TestEveryAccountUnusableLeavesItToCPA(t *testing.T) {
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+func TestEveryAccountUnusableLeavesItToCLIProxyAPI(t *testing.T) {
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	claudeWeekly(r, "a", now.Add(time.Hour), "1")
 	if resp := r.pick(pickReq("s1", "a")); resp.Handled {
@@ -440,6 +440,20 @@ func TestEveryAccountUnusableLeavesItToCPA(t *testing.T) {
 	}
 	if _, ok := r.st.Bindings[keyOf(pickReq("s1"))]; ok {
 		t.Fatal("bound a session to nothing")
+	}
+}
+
+func TestStateTimesAreUTC(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Mode = "active"
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
+	r := newRouter(cfg)
+	r.pick(pickReq("s1", "a"))
+	if loc := r.st.Recent[0].At.Location(); loc != time.UTC {
+		t.Fatalf("decision time recorded in %v, want UTC", loc)
+	}
+	if loc := r.st.Bindings[keyOf(pickReq("s1"))].LastSeen.Location(); loc != time.UTC {
+		t.Fatalf("binding time recorded in %v, want UTC", loc)
 	}
 }
 

@@ -18,7 +18,7 @@ import (
 )
 
 // Session headers in the order CLIProxyAPI itself prefers them.
-var sessionHeaders = []string{"X-Claude-Code-Session-Id", "Session_id", "Session-Id", "X-Session-Id"}
+var sessionHeaders = []string{"X-Claude-Code-Session-Id", "Session-Id", "Session_id", "X-Session-Id"}
 
 // modelClaim matches Claude's per-model weekly limits (seven_day_opus, seven_day_sonnet); multi-word claims such as seven_day_overage_included are not model limits.
 var modelClaim = regexp.MustCompile(`^seven_day_([a-z]+)$`)
@@ -54,7 +54,7 @@ type account struct {
 	Served         bool                 `json:"served,omitempty"` // answered at least once, so missing weekly headers mean it sends none
 }
 
-// authFailedFor matches CLIProxyAPI's 30-minute cooldown after a 401 or 403; past it the account is only a last resort until a request succeeds.
+// authFailedFor bounds how long a rejected login keeps an account unusable; past it the account is only a last resort until a request succeeds.
 const authFailedFor = 30 * time.Minute
 
 type decision struct {
@@ -83,7 +83,7 @@ type router struct {
 }
 
 func newRouter(cfg config) *router {
-	r := &router{cfg: cfg, now: time.Now, st: state{Mode: cfg.Mode, Bindings: map[string]*binding{}, Accounts: map[string]*account{}}}
+	r := &router{cfg: cfg, now: func() time.Time { return time.Now().UTC() }, st: state{Mode: cfg.Mode, Bindings: map[string]*binding{}, Accounts: map[string]*account{}}}
 	raw, err := os.ReadFile(cfg.StateFile)
 	if err != nil {
 		return r
@@ -118,12 +118,13 @@ type standing int
 
 const (
 	ready    standing = iota // room left, or nothing known yet
-	awaiting                 // was used up and its reset has passed, but no header has shown the new window yet; ahead of low, since only traffic can confirm it
+	awaiting                 // only traffic can confirm it is back: its reset passed but no header has shown the new window yet, or its login was rejected and no request has succeeded since
 	low                      // under min_remaining of its weekly window
-	unusable                 // used up for this model, or its login failed
+	unusable                 // used up for this model, or its login was rejected recently
 )
 
-// offered tells whether CLIProxyAPI still lists the account: CLIProxyAPI refreshes an expired token after its first 401 and drops a revoked login from the candidates, so a 401 only counts once CLIProxyAPI agrees.
+// standing returns the account's rank for a new session on model, with the reason whenever it is not ready.
+// offered tells whether CLIProxyAPI still lists the account. CLIProxyAPI refreshes an expired token after its first 401 and drops a revoked login from the candidates, so a 401 makes the account unusable only once CLIProxyAPI has dropped it.
 func (r *router) standing(id, model string, offered bool, now time.Time) (standing, string) {
 	a := r.st.Accounts[id]
 	if a == nil {
@@ -236,7 +237,7 @@ func (r *router) pick(req pluginapi.SchedulerPickRequest) pluginapi.SchedulerPic
 	return pluginapi.SchedulerPickResponse{AuthID: authID, Handled: true}
 }
 
-// best picks the fittest standing, then within it accounts with no current reset time first, so one session learns it, then the soonest reset, then accounts that never report one.
+// best picks the fittest standing, then within it accounts with no current reset time first, so traffic learns it, then the soonest reset, then accounts that never report one.
 // It returns "" when every candidate is unusable, leaving the request to CLIProxyAPI.
 func (r *router) best(cands []pluginapi.SchedulerAuthCandidate, model string, now time.Time) (string, string) {
 	type option struct {
@@ -319,7 +320,7 @@ func (r *router) observe(rec pluginapi.UsageRecord) {
 		switch {
 		case w.full:
 			a.FullUntil = w.reset
-		// A new window shows a reset well past the one that was used up; usage only grows within a window, and Codex's relative resets drift by seconds.
+		// A reset more than an hour past the used-up one is a new window. Within a window the reset stays put, except that Codex's relative resets drift by seconds.
 		case !a.FullUntil.IsZero() && w.reset.Sub(a.FullUntil) > time.Hour:
 			a.FullUntil = time.Time{}
 		}
@@ -411,7 +412,7 @@ func unixHeader(v string) (time.Time, bool) {
 	return time.Unix(sec, 0).UTC(), true
 }
 
-// routeProvider reads the single provider of the route; CLIProxyAPI v8.0.33 leaves Provider empty on mixed routes and lists it in Providers.
+// routeProvider reads the single provider of the route; CLIProxyAPI v8.0.33 picks every request through its mixed path, which leaves Provider empty and lists the route's providers in Providers.
 func routeProvider(req pluginapi.SchedulerPickRequest) string {
 	if req.Provider != "" {
 		return req.Provider

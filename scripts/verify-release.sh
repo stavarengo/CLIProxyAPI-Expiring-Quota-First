@@ -26,7 +26,7 @@ Also checks that registry.json parses and names this plugin as a GitHub release 
 
 Modes:
   --dir <dir> --version <version>  Check built assets in <dir>: the zips and checksums.txt of plugin version <version>, without the leading v.
-  --tag <tag>                      Install the published GitHub release <tag> of this repository the way CLIProxyAPI does, and check it is the latest release. GH_TOKEN is used when set, which a private repository needs.
+  --tag <tag>                      Install the published GitHub release <tag> of this repository the way CLIProxyAPI does, and check it is the latest release. GH_TOKEN is used when set; a private fork needs it.
 
 Options:
   -h, --help  Show this help.
