@@ -44,17 +44,37 @@ Other providers, and setups with a single account, are left to CLIProxyAPI's own
 
 ## How it picks an account
 
+```mermaid
+flowchart TD
+    R([Claude or Codex request]) --> B{Session<br>already bound?}
+    B -- yes --> O{Account still offered<br>and usable?}
+    O -- yes --> K[Keep the account]
+    O -- "unusable, or missing<br>longer than rebind_after" --> N
+    B -- no --> N[Pick the best account]
+    N --> RANK
+    subgraph RANK[Best first]
+        direction LR
+        G1[1 Ready<br>room left, or<br>nothing known yet] ~~~ G2[2 Awaiting<br>reset passed or login rejected,<br>no response since] ~~~ G3[3 Low<br>under min_remaining %] ~~~ G4[4 Unusable<br>used up, or login<br>rejected recently]
+    end
+    RANK --> P[Bind the session to it]
+    RANK -. every account unusable .-> C[Left to CLIProxyAPI's<br>own routing]
+
+    classDef ready fill:#2e7d32,color:#fff,stroke:#1b5e20
+    classDef waiting fill:#f9a825,color:#000,stroke:#f57f17
+    classDef low fill:#ef6c00,color:#fff,stroke:#e65100
+    classDef bad fill:#c62828,color:#fff,stroke:#b71c1c
+    classDef neutral fill:#455a64,color:#fff,stroke:#263238
+    class G1,K,P ready
+    class G2 waiting
+    class G3 low
+    class G4 bad
+    class C,R,N neutral
+    style RANK fill:none,stroke:#78909c,stroke-dasharray:4,color:#b0bec5
+```
+
 Only the weekly quota counts; the five-hour limits are ignored.
-For a new session, the accounts CLIProxyAPI offers are ranked best first:
-
-1. Ready: room left, or nothing known yet. Accounts with an unknown reset time go first so traffic learns it, then the soonest weekly reset, then accounts whose responses carry no weekly quota at all, such as plain API keys.
-2. Awaiting: used up but past its reset time, with no response yet confirming the new quota. Or its login was rejected and nothing has succeeded since: at once for a 401 on an account CLIProxyAPI keeps offering, after half an hour for the rejections of rank 4.
-3. Low: under `min_remaining` percent of its weekly quota.
-4. Unusable: weekly quota used up, for every model or for the requested one, or within the last half hour a 403, or a 401 on an account CLIProxyAPI has since stopped offering. When every account is unusable, the request is left to CLIProxyAPI.
-
-The session keeps its account until it has been idle for `ttl`.
-If CLIProxyAPI stops offering that account, each request falls back on its own and the session rebinds after `rebind_after`; if the account becomes unusable, it rebinds at once.
-Claude Code subagents carry their parent's session id, so they take the parent's account.
+Among ready accounts, one with an unknown reset time goes first so traffic learns it, then the soonest weekly reset, then accounts whose responses carry no weekly quota, such as plain API keys.
+A session forgets its account after `ttl` idle, and Claude Code subagents carry their parent's session id, so they take the parent's account.
 
 ## Install
 
