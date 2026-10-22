@@ -24,18 +24,18 @@ With it, each new session, meaning each new Claude Code or Codex CLI conversatio
 
 ```mermaid
 flowchart TD
-    R([Claude or Codex request]) --> B{Session<br>already bound?}
-    B -- yes --> O{Account still offered<br>and usable?}
-    O -- yes --> K[Keep the account]
-    O -- "unusable, or missing<br>for a while" --> N
-    B -- no --> N[Pick the best account]
+    R([A conversation sends a request]) --> B{Does this conversation<br>already have an account?}
+    B -- yes --> O{Is that account still<br>available, with quota left?}
+    O -- yes --> K[Keep using it]
+    O -- "no, or it has been<br>gone for a while" --> N
+    B -- no --> N[Choose the best account]
     N --> RANK
-    subgraph RANK[Best first]
+    subgraph RANK[Ranked, best first]
         direction LR
-        G1[1 Ready<br>room left, or<br>nothing known yet] ~~~ G2[2 Unconfirmed<br>should have recovered,<br>no response seen since] ~~~ G3[3 Low<br>nearly used up] ~~~ G4[4 Unusable<br>used up, or login<br>rejected just now]
+        G1[1 Ready<br>has quota left, or<br>not checked yet] ~~~ G2[2 Unconfirmed<br>should have reset by now,<br>not seen working since] ~~~ G3[3 Low<br>almost out of quota] ~~~ G4[4 Unusable<br>out of quota, or<br>login just failed]
     end
-    RANK --> P[Bind the session to it]
-    RANK -. every account unusable .-> C[Left to CLIProxyAPI's<br>own routing]
+    RANK --> P[Use it for the rest<br>of this conversation]
+    RANK -. no usable account .-> C[CLIProxyAPI decides, as it<br>would without the plugin]
 
     classDef ready fill:#2e7d32,color:#fff,stroke:#1b5e20
     classDef waiting fill:#f9a825,color:#000,stroke:#f57f17
