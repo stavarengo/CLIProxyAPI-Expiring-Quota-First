@@ -7,17 +7,19 @@
 
 A scheduler plugin for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) that spends your Claude and Codex weekly quotas before they reset.
 It is for setups where two or more Claude or Codex subscriptions sit behind one CLIProxyAPI and one account keeps hitting its weekly limit while another sits idle.
+A session below is one conversation of a client such as Claude Code or the Codex CLI.
 
-## What it does
+## Features
 
-- Sends each new session, one conversation of a client such as Claude Code or the Codex CLI, to the account whose weekly quota resets soonest, so no quota expires unused while another account is being drained.
-- Keeps a session on its account, across CLIProxyAPI restarts too, and moves it only when that account is used up, rejected or gone.
-- Gives no new sessions to an account that is used up, nearly used up, or whose login was rejected. Claude's per-model weekly limits, such as the Opus one, count too.
-- Gives a Claude Code subagent the same account as the session that started it.
-- Starts in a shadow mode that only records what it would have picked, so you can check its choices before letting it route.
-- Writes every pick with its reason to a state file you can read, with session ids hashed.
-- Learns quota from the rate-limit headers CLIProxyAPI already receives, so it holds no tokens and makes no network calls of its own.
-- Leaves requests for other providers, and routes that mix providers, to CLIProxyAPI's own routing.
+- **Expiring quota first:** Each new session goes to the account whose weekly quota resets soonest, so no quota expires unused while another account is being drained.
+- **Sticky sessions:** A session stays on its account, across CLIProxyAPI restarts too, and moves only when that account is used up, rejected or gone.
+- **Exhausted accounts avoided:** An account that is used up, nearly used up, or whose login was rejected gets no new sessions.
+- **Per-model limits:** Claude's separate weekly limit on its top model, Fable on Max plans as of 2026-10, counts too.
+- **Subagents follow their parent:** A Claude Code subagent gets the same account as the session that started it.
+- **Shadow mode:** The plugin starts by only recording what it would have picked, so you can check its choices before letting it route.
+- **Readable state file:** Every pick is written there with its reason, with session ids hashed.
+- **No credentials, no calls:** Quota is learned from the rate-limit headers CLIProxyAPI already receives, so the plugin holds no tokens and makes no network calls of its own.
+- **Scoped to Claude and Codex:** Requests for other providers, and routes that mix providers, stay with CLIProxyAPI's own routing.
 
 ## Quick start
 
@@ -123,7 +125,7 @@ Switching `mode` drops the session bindings, since a shadow binding names the ac
 JSON, written shortly after something changes and on shutdown, with times in RFC 3339 UTC:
 
 - `bindings`: each session, as a short hash so no raw session id lands on disk, to its `auth_id`, with `last_seen` and `missing_since`.
-- `accounts`: what the response headers have said about each account, keyed by the credential id the management API lists. `weekly_reset` and `weekly_used`, a fraction from 0 to 1, describe the current weekly quota. `full_until` is set while the weekly quota is known to be used up, and `model_full_until` says the same per model family, such as `opus`. `auth_failed` is the status, 401 or 403, of the last rejected login with no success since, received at `auth_failed_at`. `served` is true once the account has answered a request.
+- `accounts`: what the response headers have said about each account, keyed by the credential id the management API lists. `weekly_reset` and `weekly_used`, a fraction from 0 to 1, describe the current weekly quota. `full_until` is set while the weekly quota is known to be used up, and `model_full_until` says the same per model family. `auth_failed` is the status, 401 or 403, of the last rejected login with no success since, received at `auth_failed_at`. `served` is true once the account has answered a request.
 - `recent_decisions`: the most recent picks, oldest first, each with time, hashed session, model, `auth_id`, a short `reason` such as `new session; soonest weekly reset`, and `applied`, true only when the plugin routed the request, so never in shadow mode.
 - `mode`: the mode the bindings were made in, since a mode switch drops them.
 
@@ -132,7 +134,7 @@ A file that cannot be parsed is renamed to `state.json.corrupt` and the plugin s
 ## Known limits
 
 - A request with no session id, neither the session identity CLIProxyAPI attaches to the request nor one of the session id headers CLIProxyAPI itself accepts, is left to CLIProxyAPI.
-- An account's quota is unknown until it has served a request, and a per-model weekly limit, such as Claude's Opus limit, only after the first request it refuses.
+- An account's quota is unknown until it has served a request, and a per-model weekly limit only after a request to that model has shown it.
 - Releases are Linux only.
 
 ## Develop
