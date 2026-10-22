@@ -70,7 +70,7 @@ func TestQuiesceSavesForTheReplacementCopy(t *testing.T) {
 	if err != nil || !strings.Contains(string(out), `"ok":true`) {
 		t.Fatalf("quiesce answered %s, %v", out, err)
 	}
-	// No tick has run; only the final save that quiesce triggers can carry a to the copy that loads next.
+	// No tick has run, so only the final save that quiesce triggers can carry account a to the copy that loads next.
 	if _, ok := newRouter(active().cfg).st.Accounts["a"]; !ok {
 		t.Fatal("the state file does not hold what the plugin learned before quiesce")
 	}

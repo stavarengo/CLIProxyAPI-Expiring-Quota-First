@@ -123,7 +123,7 @@ func TestCodexWeeklyWindow(t *testing.T) {
 	}
 }
 
-// codexWeekly sends the weekly window in the primary slot, the shape seen since September 2026.
+// codexWeekly sends the weekly window in the primary slot, the shape seen since 2026-09.
 func codexWeekly(r *router, id string, at time.Time, usedPercent string, failed bool) {
 	rec := pluginapi.UsageRecord{AuthID: id, Failed: failed, ResponseHeaders: map[string][]string{
 		"X-Codex-Primary-Window-Minutes": {"10080"},

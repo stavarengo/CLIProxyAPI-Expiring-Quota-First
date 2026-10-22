@@ -20,7 +20,7 @@ printHelp()
   cat <<EOF
 Usage: ${0##*/} [--version <version>]
 
-Builds the plugin for linux/amd64 and linux/arm64 inside ${BUILD_IMAGE%%@*}, after vet and the tests, then checks the result with the plugin store installer code of the CLIProxyAPI version in go.mod.
+Inside ${BUILD_IMAGE%%@*}: vets and tests, builds the plugin for linux/amd64 and linux/arm64, then checks the result with the plugin store installer code of the CLIProxyAPI version in go.mod.
 Writes the assets a release needs to dist/release: one zip per platform and checksums.txt.
 
 Options:

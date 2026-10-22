@@ -103,7 +103,7 @@ func cliproxyPluginFree(ptr unsafe.Pointer, _ C.size_t) {
 func cliproxyPluginShutdown() { stop() }
 
 func handle(method string, raw []byte) (out []byte, err error) {
-	// A panic here would take CLIProxyAPI down with it; an unhandled pick falls back to CLIProxyAPI's own routing.
+	// A panic here would take CLIProxyAPI down with the plugin. So register and reconfigure report it as an error, and any other method answers as unhandled, which leaves the request to CLIProxyAPI's own routing.
 	defer func() {
 		if p := recover(); p != nil {
 			log.Printf("expiring-quota-first: panic in %s: %v", method, p)
@@ -124,7 +124,7 @@ func handle(method string, raw []byte) (out []byte, err error) {
 		stop()
 		return okEnvelope(struct{}{})
 	case pluginabi.MethodPluginQuiesce:
-		// CLIProxyAPI sends this before it loads a replacement copy, which reads the state file; this copy keeps answering from memory until it is retired, but writes no more.
+		// CLIProxyAPI sends this before it loads a replacement copy of the plugin, which reads the state file. This copy keeps answering from memory until it is retired, but writes no more, so the replacement reads a file that no longer changes.
 		stop()
 		return okEnvelope(struct{}{})
 	case pluginabi.MethodSchedulerPick:
