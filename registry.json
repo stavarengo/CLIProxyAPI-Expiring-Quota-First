@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "plugins": [
+    {
+      "id": "expiring-quota-first",
+      "name": "Expiring Quota First",
+      "description": "Scheduler that sends each new Claude or Codex session to the account whose weekly quota resets soonest, and keeps a session on its account across restarts.",
+      "author": "stavarengo",
+      "repository": "https://github.com/stavarengo/CLIProxyAPI-Expiring-Quota-First",
+      "homepage": "https://github.com/stavarengo/CLIProxyAPI-Expiring-Quota-First",
+      "license": "MIT",
+      "tags": ["Scheduler", "Routing", "Quota", "Claude", "Codex"]
+    }
+  ]
+}

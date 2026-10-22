@@ -6,17 +6,48 @@ It skips accounts that are used up or logged out, and avoids accounts with littl
 It learns quota from the response headers CLIProxyAPI already receives, so it holds no tokens and makes no network calls.
 A per-model limit is only known after the first request that limit refuses.
 
+## Install
+
+Each release is built for one CLIProxyAPI version, the one pinned in `go.mod` at the time, and the release notes name it.
+CLIProxyAPI drops a plugin built for another ABI and keeps its own routing without logging why, so match the versions:
+
+| Plugin release | CLIProxyAPI |
+| -------------- | ----------- |
+| v0.1.0         | v8.0.33     |
+
+Releases cover linux/amd64 and linux/arm64, built on Debian bookworm like the `eceasy/cli-proxy-api` image.
+
+### From the plugin store
+
+Until the plugin is listed in the official store, add this repository's `registry.json` as an extra store source, then install `expiring-quota-first` from the plugin store in CLIProxyAPI's management console:
+
+```yaml
+plugins:
+  store-sources:
+    - "https://raw.githubusercontent.com/stavarengo/CLIProxyAPI-Expiring-Quota-First/main/registry.json"
+```
+
+### By hand
+
+Download `expiring-quota-first_<version>_<os>_<arch>.zip` from the release, check it against `checksums.txt`, and put the `expiring-quota-first.so` inside into CLIProxyAPI's `plugins` folder.
+Keep the file name, because the plugin id is the file's basename.
+Then restart CLIProxyAPI.
+
 ## Build
 
-The plugin targets CLIProxyAPI v8.0.33, the version pinned in `go.mod`.
-CLIProxyAPI drops a plugin built for another ABI and keeps its own routing without logging why.
-Build with CGO on the same platform as CLIProxyAPI, and keep the file name, because the plugin id is the file's basename.
+`./build.sh --version <version>` builds, tests and zips the plugin for both platforms in a pinned Docker image and writes the release assets to `dist/release`.
+It ends by installing them with the plugin store code of the pinned CLIProxyAPI version, the same check CI runs on every push.
+
+For another platform, build with CGO on that platform:
 
 ```bash
 go build -trimpath -buildmode=c-shared -o expiring-quota-first.so .
 ```
 
-Copy `expiring-quota-first.so` into CLIProxyAPI's `plugins` folder and restart it.
+## Release
+
+Push a tag `v<version>`, for example `v0.1.0`.
+CI builds the assets, publishes the GitHub release, and then installs that release through CLIProxyAPI's plugin store code as a final check.
 
 ## Configure
 
