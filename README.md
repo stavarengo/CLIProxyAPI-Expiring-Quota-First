@@ -57,7 +57,7 @@ A session keeps its account until it has been idle for a week, by default.
 
 ## Try it
 
-Releases are for Linux, and each one's notes name the CLIProxyAPI version it was built for; the badge above shows the version pinned on `main`. [Install](docs/install.md) has the details.
+Releases cover Linux, macOS and Windows, and each one's notes name the CLIProxyAPI version it was built for; the badge above shows the version pinned on `main`. [Install](docs/install.md) has the details.
 
 1. Add this repository's `registry.json` as a plugin store source in CLIProxyAPI's `config.yaml`. Skip this step when the plugin store page of your management console already lists the plugin:
 

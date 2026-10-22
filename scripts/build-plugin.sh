@@ -20,7 +20,7 @@ printHelp()
 Usage: ${0##*/}
 
 Runs inside the Go image that build.sh starts; build.sh is the entry point.
-Vets and tests the plugin, builds it for ${PLATFORMS[*]}, zips each build the way CLIProxyAPI's plugin store expects, writes checksums.txt, and verifies the result with scripts/verify-release.sh.
+Vets and tests the plugin, builds it for ${PLATFORMS[*]} with scripts/build-library.sh, then zips, checksums and verifies the result with scripts/package-release.sh.
 
 Environment:
   PLUGIN_VERSION     Plugin version without the leading v. Required.
@@ -35,36 +35,6 @@ installBuildDeps()
 {
   apt-get update -qq
   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends zip gcc-aarch64-linux-gnu libc6-dev-arm64-cross
-}
-
-buildPlatform()
-{
-  local -r goos="${1:?goos is required}"
-  local -r goarch="${2:?goarch is required}"
-  local -r outFile="${3:?outFile is required}"
-  local -r version="${4:?version is required}"
-
-  local cc="gcc"
-  if [[ "$goarch" == "arm64" ]]; then
-    cc="aarch64-linux-gnu-gcc"
-  fi
-  readonly cc
-
-  mkdir -p -- "$(dirname -- "$outFile")"
-  CGO_ENABLED=1 GOOS="$goos" GOARCH="$goarch" CC="$cc" go build -trimpath -buildvcs=false -buildmode=c-shared -ldflags "-X main.version=$version" -o "$outFile" .
-}
-
-zipPlatform()
-{
-  local -r library="${1:?library is required}"
-  local -r zipFile="${2:?zipFile is required}"
-  local -r sourceDateEpoch="${3:?sourceDateEpoch is required}"
-
-  touch -d "@$sourceDateEpoch" -- "$library"
-  mkdir -p -- "$(dirname -- "$zipFile")"
-  rm -f -- "$zipFile"
-  # -j keeps the library at the zip root, where the installer wants it; -X drops the extra fields that vary between runs.
-  zip -q -j -X "$zipFile" "$library"
 }
 
 main()
@@ -90,23 +60,16 @@ main()
   go test ./...
 
   local -r distDir="$PWD/dist"
-  local -r releaseDir="$distDir/release"
   rm -rf -- "$distDir"
 
-  local platform goos goarch
+  local platform
   for platform in "${PLATFORMS[@]}"; do
-    goos="${platform%/*}"
-    goarch="${platform#*/}"
-    buildPlatform "$goos" "$goarch" "$distDir/${goos}_${goarch}/$PLUGIN_ID.so" "$version"
-    zipPlatform "$distDir/${goos}_${goarch}/$PLUGIN_ID.so" "$releaseDir/${PLUGIN_ID}_${version}_${goos}_${goarch}.zip" "$sourceDateEpoch"
+    scripts/build-library.sh --version "$version" --platform "$platform" --out "$distDir/${platform/\//_}/$PLUGIN_ID.so"
   done
-  (cd -- "$releaseDir" && sha256sum -- *.zip >|checksums.txt)
-
-  scripts/verify-release.sh --dir "$releaseDir" --version "$version"
+  scripts/package-release.sh --version "$version" --libraries "$distDir" --out "$distDir/release" --platforms "${PLATFORMS[*]}" --epoch "$sourceDateEpoch"
 
   # Leave the output owned by whoever owns the checkout, not by the container's root.
   chown -R --reference=. -- "$distDir"
-  printf 'Release assets in %s\n' "$releaseDir"
 }
 
 main "$@"

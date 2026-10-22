@@ -21,7 +21,7 @@ printHelp()
 Usage: ${0##*/} [--version <version>]
 
 Inside ${BUILD_IMAGE%%@*}: vets and tests, builds the plugin for linux/amd64 and linux/arm64, then checks the result with the plugin store installer code of the CLIProxyAPI version in go.mod.
-Writes the assets a release needs to dist/release: one zip per platform and checksums.txt.
+Writes the Linux assets of a release to dist/release: one zip per platform and checksums.txt. The macOS and Windows libraries are built only by the Release workflow, on GitHub's runners for those systems.
 
 Options:
   --version <version>  Plugin version without the leading v, as in 0.1.0. Default: 0.0.0-dev.

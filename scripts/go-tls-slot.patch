@@ -1,0 +1,26 @@
+Stock Go on darwin/amd64 keeps the current goroutine in pthread thread-local slot 6, at %gs:0x30, the slot Apple reserved for Go (golang/go#23617), and every Go runtime in a process uses it. CLIProxyAPI is a Go program, so a plugin built with stock Go shares its slot and crashes it at startup. This moves the plugin's runtime to slot 11, at %gs:0x58, which Apple also reserves and leaves unused. Written against Go 1.27.3; the two constants must stay equal.
+
+diff -ru a/src/cmd/link/internal/ld/sym.go b/src/cmd/link/internal/ld/sym.go
+--- a/src/cmd/link/internal/ld/sym.go
++++ b/src/cmd/link/internal/ld/sym.go
+@@ -107,7 +107,7 @@
+ 			 * and runtime/cgo/gcc_darwin_amd64.c.
+ 			 */
+ 		case sys.AMD64:
+-			ctxt.Tlsoffset = 0x30
++			ctxt.Tlsoffset = 0x58
+ 
+ 		case sys.ARM64:
+ 			ctxt.Tlsoffset = 0 // dummy value, not needed
+diff -ru a/src/runtime/sys_darwin_amd64.s b/src/runtime/sys_darwin_amd64.s
+--- a/src/runtime/sys_darwin_amd64.s
++++ b/src/runtime/sys_darwin_amd64.s
+@@ -395,7 +395,7 @@
+ 
+ 	// Initialize TLS entry.
+ 	// See cmd/link/internal/ld/sym.go:computeTLSOffset.
+-	MOVQ	DX, 0x30(GS)
++	MOVQ	DX, 0x58(GS)
+ 
+ 	CALL	runtime·mstart(SB)
+ 

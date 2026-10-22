@@ -12,14 +12,14 @@ set -o pipefail
 shopt -s inherit_errexit
 
 readonly PLUGIN_ID="expiring-quota-first"
-readonly PLATFORMS="linux/amd64 linux/arm64"
+readonly DEFAULT_PLATFORMS="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64"
 readonly UPSTREAM_REPO="https://github.com/router-for-me/CLIProxyAPI.git"
 
 printHelp()
 {
   cat <<EOF
-Usage: ${0##*/} --dir <dir> --version <version>
-       ${0##*/} --tag <tag>
+Usage: ${0##*/} --dir <dir> --version <version> [--platforms "<goos/goarch> ..."]
+       ${0##*/} --tag <tag> [--platforms "<goos/goarch> ..."]
 
 Checks a release with the plugin store installer code of the CLIProxyAPI version in go.mod: clones that version and runs testdata/release_verify_test.go inside its internal/pluginstore package.
 Also checks that registry.json parses and names this plugin as a GitHub release install. Needs go and git.
@@ -29,7 +29,8 @@ Modes:
   --tag <tag>                      Install the published GitHub release <tag> of this repository the way CLIProxyAPI does, and check it is the latest release. GH_TOKEN is used when set; a private fork needs it.
 
 Options:
-  -h, --help  Show this help.
+  --platforms "<goos/goarch> ..."  Platforms to check. Default: $DEFAULT_PLATFORMS.
+  -h, --help                       Show this help.
 EOF
 }
 
@@ -59,7 +60,7 @@ cloneUpstream()
 
 main()
 {
-  local dir="" version="" tag=""
+  local dir="" version="" tag="" platforms="$DEFAULT_PLATFORMS"
   while (($# > 0)); do
     case "$1" in
       -h | --help)
@@ -78,13 +79,17 @@ main()
         tag="${2:?--tag needs a value}"
         shift 2
         ;;
+      --platforms)
+        platforms="${2:?--platforms needs a value}"
+        shift 2
+        ;;
       *)
         printHelp >&2
         return 2
         ;;
     esac
   done
-  readonly dir version tag
+  readonly dir version tag platforms
   if [[ -n "$tag" && (-n "$dir" || -n "$version") ]] || [[ -z "$tag" && (-z "$dir" || -z "$version") ]]; then
     printHelp >&2
     return 2
@@ -112,7 +117,7 @@ main()
     cd -- "$workDir/CLIProxyAPI"
     env \
       "PLUGIN_ID=$PLUGIN_ID" \
-      "PLUGIN_PLATFORMS=$PLATFORMS" \
+      "PLUGIN_PLATFORMS=$platforms" \
       "PLUGIN_REGISTRY=$repoDir/registry.json" \
       "PLUGIN_RELEASE_DIR=$absoluteDir" \
       "PLUGIN_VERSION=$version" \
