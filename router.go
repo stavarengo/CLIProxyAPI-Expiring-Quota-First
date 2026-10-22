@@ -20,8 +20,12 @@ import (
 // Session headers in the order CLIProxyAPI itself prefers them.
 var sessionHeaders = []string{"X-Claude-Code-Session-Id", "Session-Id", "Session_id", "X-Session-Id"}
 
-// modelClaim matches Claude's per-model weekly limits (seven_day_opus, seven_day_sonnet); multi-word claims such as seven_day_overage_included are not model limits.
+// modelClaim matches a per-model weekly limit named in the representative claim, seven_day_<family>; multi-word claims such as seven_day_overage_included are not model limits.
 var modelClaim = regexp.MustCompile(`^seven_day_([a-z]+)$`)
+
+// scopedWeeklyStatus matches the status header of a per-model weekly bucket, Anthropic-Ratelimit-Unified-7d_<scope>-*, such as 7d_oi for the top model.
+// Claude sends the bucket only on requests to the model it scopes, so the request's model names the family, not the scope token.
+var scopedWeeklyStatus = regexp.MustCompile(`^anthropic-ratelimit-unified-7d_([a-z]+)-status$`)
 
 type config struct {
 	Mode         string        `yaml:"mode"`          // shadow (default) or active
@@ -325,16 +329,23 @@ func (r *router) observe(rec pluginapi.UsageRecord) {
 			a.FullUntil = time.Time{}
 		}
 	}
-	if hasClaim {
-		if claimFam == "" {
-			a.FullUntil = claimUntil
-		} else {
-			if a.ModelFullUntil == nil {
-				a.ModelFullUntil = map[string]time.Time{}
-			}
-			a.ModelFullUntil[claimFam] = claimUntil
+	markModelFull := func(fam string, until time.Time) {
+		if a.ModelFullUntil == nil {
+			a.ModelFullUntil = map[string]time.Time{}
 		}
-	} else if !rec.Failed {
+		a.ModelFullUntil[fam] = until
+	}
+	scopedUntil, scopedFull := scopedWeeklyFull(h)
+	switch {
+	case hasClaim && claimFam == "":
+		a.FullUntil = claimUntil
+	case hasClaim:
+		markModelFull(claimFam, claimUntil)
+	}
+	switch fam := modelFamily(rec.Model); {
+	case scopedFull && fam != "":
+		markModelFull(fam, scopedUntil)
+	case !rec.Failed && !hasClaim:
 		if fam, until, ok := a.modelFull(rec.Model); ok && !now.Before(until) {
 			delete(a.ModelFullUntil, fam)
 		}
@@ -385,7 +396,7 @@ func weeklyWindow(h map[string][]string, now time.Time) (weekly, bool) {
 	return weekly{}, false
 }
 
-// rejectedClaim reads which Claude weekly limit refused a request: family "" for the shared weekly window, or a model family such as opus.
+// rejectedClaim reads which Claude weekly limit refused a request: family "" for the shared weekly window, or the model family of a per-model limit.
 func rejectedClaim(h map[string][]string) (family string, until time.Time, ok bool) {
 	if !strings.EqualFold(header(h, "Anthropic-Ratelimit-Unified-Status"), "rejected") {
 		return "", time.Time{}, false
@@ -402,6 +413,38 @@ func rejectedClaim(h map[string][]string) (family string, until time.Time, ok bo
 		return m[1], until, true
 	}
 	return "", time.Time{}, false
+}
+
+// scopedWeeklyFull reports whether a per-model weekly bucket in the response is used up, and until when.
+func scopedWeeklyFull(h map[string][]string) (time.Time, bool) {
+	for k := range h {
+		m := scopedWeeklyStatus.FindStringSubmatch(strings.ToLower(k))
+		if m == nil {
+			continue
+		}
+		base := "Anthropic-Ratelimit-Unified-7d_" + m[1] + "-"
+		full := strings.EqualFold(header(h, base+"Status"), "rejected")
+		if u, err := strconv.ParseFloat(header(h, base+"Utilization"), 64); err == nil && u >= 1 {
+			full = true
+		}
+		if !full {
+			continue
+		}
+		if until, ok := unixHeader(header(h, base+"Reset")); ok {
+			return until, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// modelFamily reads the family of a Claude model id: claude-fable-5-1 is fable, claude-haiku-4-5-20251001 is haiku. Other ids have none.
+func modelFamily(model string) string {
+	rest, ok := strings.CutPrefix(strings.ToLower(model), "claude-")
+	if !ok {
+		return ""
+	}
+	fam, _, _ := strings.Cut(rest, "-")
+	return fam
 }
 
 func unixHeader(v string) (time.Time, bool) {

@@ -306,6 +306,58 @@ func TestFiveHourRejectionIsNotAWeeklyLimit(t *testing.T) {
 	}
 }
 
+// scopedWeekly sends the headers Claude adds on a request to a model with its own weekly bucket, as captured for Fable: the shared 7d window has room, 7d_oi is the scoped one.
+func scopedWeekly(r *router, id, model, status, used string, until time.Time, failed bool) {
+	rec := pluginapi.UsageRecord{AuthID: id, Model: model, Failed: failed, ResponseHeaders: map[string][]string{
+		"Anthropic-Ratelimit-Unified-7d-Reset":             {strconv.FormatInt(until.Add(72*time.Hour).Unix(), 10)},
+		"Anthropic-Ratelimit-Unified-7d-Utilization":       {"0.65"},
+		"Anthropic-Ratelimit-Unified-7d_oi-Status":         {status},
+		"Anthropic-Ratelimit-Unified-7d_oi-Utilization":    {used},
+		"Anthropic-Ratelimit-Unified-7d_oi-Reset":          {strconv.FormatInt(until.Unix(), 10)},
+		"Anthropic-Ratelimit-Unified-Representative-Claim": {"seven_day_overage_included"},
+	}}
+	if failed {
+		rec.Failure = pluginapi.UsageFailure{StatusCode: 429}
+		rec.ResponseHeaders["Anthropic-Ratelimit-Unified-Status"] = []string{"rejected"}
+	}
+	r.observe(rec)
+}
+
+func TestScopedWeeklyBucketOnlyBlocksThatModel(t *testing.T) {
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	r := testRouter(t, &now)
+	scopedWeekly(r, "a", "claude-fable-5-1", "allowed", "0.8", now.Add(2*time.Hour), false)
+	if s, why := r.standing("a", "claude-fable-5-1", true, now); s != ready {
+		t.Fatalf("scoped bucket with room marked a: %v %s", s, why)
+	}
+	scopedWeekly(r, "a", "claude-fable-5-1", "rejected", "1.0", now.Add(2*time.Hour), true)
+	if s, why := r.standing("a", "claude-fable-5-1", true, now); s != unusable || why != "fable weekly limit used up" {
+		t.Fatalf("used-up scoped bucket left a %v %q", s, why)
+	}
+	if s, _ := r.standing("a", "claude-opus-5", true, now); s != ready {
+		t.Fatalf("scoped bucket blocked another model: %v", s)
+	}
+	if s, _ := r.standing("a", "", true, now); s != ready {
+		t.Fatalf("scoped bucket blocked a request with no model: %v", s)
+	}
+	now = now.Add(3 * time.Hour)
+	if s, _ := r.standing("a", "claude-fable-5-1", true, now); s != awaiting {
+		t.Fatalf("scoped mark lifted without evidence: %v", s)
+	}
+	scopedWeekly(r, "a", "claude-fable-5-1", "allowed", "0.1", now.Add(168*time.Hour), false)
+	if s, _ := r.standing("a", "claude-fable-5-1", true, now); s != ready {
+		t.Fatalf("successful request after the reset did not clear the mark: %v", s)
+	}
+}
+
+func TestModelFamily(t *testing.T) {
+	for model, want := range map[string]string{"claude-fable-5-1": "fable", "Claude-Opus-5": "opus", "claude-haiku-4-5-20251001": "haiku", "gpt-5.5-codex": "", "": ""} {
+		if got := modelFamily(model); got != want {
+			t.Errorf("modelFamily(%q) = %q, want %q", model, got, want)
+		}
+	}
+}
+
 func TestLowHeadroomAvoidedForNewSessionsOnly(t *testing.T) {
 	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
