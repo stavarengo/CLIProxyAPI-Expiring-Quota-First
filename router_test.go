@@ -328,13 +328,15 @@ func TestRejectedWeeklyClaimMovesBoundSessionNow(t *testing.T) {
 	}
 }
 
-func TestFiveHourRejectionIsNotAWeeklyLimit(t *testing.T) {
+func TestOnlyTheSevenDayClaimMarksTheSharedWeek(t *testing.T) {
 	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
-	rejected(r, "a", "claude-opus-5", "five_hour", now.Add(time.Hour))
-	rejected(r, "a", "claude-opus-5", "seven_day_overage_included", now.Add(time.Hour))
-	if s, why := r.standing("a", "claude-opus-5", true, now); s != ready {
-		t.Fatalf("non-weekly rejection marked a: %v %s", s, why)
+	// five_hour and seven_day_overage_included are other limits; seven_day_opus is a label in Claude Code's client code that no capture has shown on the wire, so it marks nothing either.
+	for _, claim := range []string{"five_hour", "seven_day_overage_included", "seven_day_opus"} {
+		rejected(r, "a", "claude-opus-5", claim, now.Add(time.Hour))
+		if s, why := r.standing("a", "claude-opus-5", true, now); s != ready {
+			t.Fatalf("claim %s marked a: %v %s", claim, s, why)
+		}
 	}
 }
 
@@ -421,30 +423,30 @@ func TestPassedResetBeatsLowHeadroom(t *testing.T) {
 	}
 }
 
-func TestModelWeeklyLimitOnlyBlocksThatModel(t *testing.T) {
+func TestModelWeeklyLimitOnlyMovesThatModelsSessions(t *testing.T) {
 	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
 	claudeReset(r, "a", now.Add(time.Hour))
 	claudeReset(r, "b", now.Add(96*time.Hour))
-	r.pick(modelReq("s1", "claude-opus-5", "a", "b"))
-	rejected(r, "a", "claude-opus-5", "seven_day_opus", now.Add(2*time.Hour))
-	if got := r.pick(modelReq("s1", "claude-opus-5", "a", "b")).AuthID; got != "b" {
-		t.Fatalf("opus session stayed on an account out of opus: %q", got)
+	r.pick(modelReq("s1", "claude-fable-5-1", "a", "b"))
+	scopedWeekly(r, "a", "claude-fable-5-1", "rejected", "1.0", now.Add(2*time.Hour), true)
+	if got := r.pick(modelReq("s1", "claude-fable-5-1", "a", "b")).AuthID; got != "b" {
+		t.Fatalf("fable session stayed on an account out of fable: %q", got)
 	}
 	if got := r.pick(modelReq("s2", "claude-sonnet-5", "a", "b")).AuthID; got != "a" {
-		t.Fatalf("sonnet session picked %q, want a (only opus is used up)", got)
+		t.Fatalf("sonnet session picked %q, want a (only fable is used up)", got)
 	}
-	if got := r.pick(modelReq("s3", "claude-opus-5", "a", "b")).AuthID; got != "b" {
-		t.Fatalf("new opus session picked %q", got)
+	if got := r.pick(modelReq("s3", "claude-fable-5-1", "a", "b")).AuthID; got != "b" {
+		t.Fatalf("new fable session picked %q", got)
 	}
-	// After the reset, a successful opus request on a is the confirmation.
+	// After the reset, a successful fable request on a is the confirmation, even without the bucket's headers.
 	now = now.Add(3 * time.Hour)
-	if s, _ := r.standing("a", "claude-opus-5", true, now); s != awaiting {
-		t.Fatalf("opus mark lifted without evidence: %v", s)
+	if s, _ := r.standing("a", "claude-fable-5-1", true, now); s != awaiting {
+		t.Fatalf("fable mark lifted without evidence: %v", s)
 	}
-	r.observe(pluginapi.UsageRecord{AuthID: "a", Model: "claude-opus-5"})
-	if s, _ := r.standing("a", "claude-opus-5", true, now); s != ready {
-		t.Fatalf("successful opus request did not clear the mark: %v", s)
+	r.observe(pluginapi.UsageRecord{AuthID: "a", Model: "claude-fable-5-1"})
+	if s, _ := r.standing("a", "claude-fable-5-1", true, now); s != ready {
+		t.Fatalf("successful fable request did not clear the mark: %v", s)
 	}
 }
 
