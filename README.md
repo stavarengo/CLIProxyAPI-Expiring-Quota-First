@@ -7,6 +7,11 @@
 
 Spend your Claude and Codex weekly quotas before they reset.
 
+> This plugin is the "account prioritization" feature Theo (t3.gg) mentions in his video ["If you have a Claude sub, watch this"](https://www.youtube.com/watch?v=D8PikZ1KhUo&t=1091s), at 18:11.
+> In the video he says he made it in his own fork. That fork isn't public, and I wanted it too, so I implemented it and I'm sharing it as a plugin for the upstream CLIProxyAPI.
+>
+> <a href="https://www.youtube.com/watch?v=D8PikZ1KhUo&t=1091s"><img src="docs/theo-video.jpg" alt="Theo's video, If you have a Claude sub, watch this, opened at 18:11" width="480"></a>
+
 A scheduler plugin for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), for anyone running two or more Claude or Codex subscriptions behind it.
 Without it, one account hits its weekly limit while another still has half its week unused, and on reset day that half is gone.
 With it, each new session, meaning each new Claude Code or Codex CLI conversation, goes to the account whose quota resets soonest, so the quota about to expire is the one you burn.
