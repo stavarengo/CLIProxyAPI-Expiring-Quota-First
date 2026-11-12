@@ -313,6 +313,84 @@ func TestUsedUpAccountGetsNoNewSessionUntilANewWindowShows(t *testing.T) {
 	}
 }
 
+// claudeWeeklyAt sends a Claude response with the shared weekly window, dispatched at sent.
+func claudeWeeklyAt(r *router, id string, reset time.Time, used string, sent time.Time, failed bool) {
+	rec := pluginapi.UsageRecord{AuthID: id, Failed: failed, RequestedAt: sent, Latency: time.Second, ResponseHeaders: map[string][]string{
+		"Anthropic-Ratelimit-Unified-7d-Reset":       {strconv.FormatInt(reset.Unix(), 10)},
+		"Anthropic-Ratelimit-Unified-7d-Utilization": {used},
+	}}
+	if failed {
+		rec.Failure = pluginapi.UsageFailure{StatusCode: 429}
+	}
+	r.observe(rec)
+}
+
+func TestLimitLiftedInsideTheWindowClearsTheMark(t *testing.T) {
+	// A plan's weekly limit reset by hand keeps the window's reset time: only the utilization says the account has room again.
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	r := testRouter(t, &now)
+	reset := now.Add(40 * time.Hour)
+	claudeWeeklyAt(r, "a", reset, "1.0", now, true)
+	if s, _ := r.standing("a", "", true, now); s != unusable {
+		t.Fatalf("429 at 100%% left a %v", s)
+	}
+	// A request sent before the mark that finishes after it says nothing about the account now.
+	claudeWeeklyAt(r, "a", reset, "0.98", now.Add(-time.Minute), false)
+	if s, _ := r.standing("a", "", true, now); s != unusable {
+		t.Fatalf("an older request's late success lifted the mark: %v", s)
+	}
+	// Without a dispatch time a success cannot be placed after the mark.
+	claudeWeeklyAt(r, "a", reset, "0.01", time.Time{}, false)
+	if s, _ := r.standing("a", "", true, now); s != unusable {
+		t.Fatalf("a success with no dispatch time lifted the mark: %v", s)
+	}
+	// A request sent after the mark is served and the same window shows room: the limit was lifted.
+	claudeWeeklyAt(r, "a", reset, "0.01", now.Add(time.Minute), false)
+	if s, why := r.standing("a", "", true, now.Add(time.Minute)); s != ready {
+		t.Fatalf("a later success with room did not lift the mark: %v %s", s, why)
+	}
+	if a := r.st.Accounts["a"]; !a.FullUntil.IsZero() || !a.FullSince.IsZero() {
+		t.Fatalf("mark kept: until %v since %v", a.FullUntil, a.FullSince)
+	}
+}
+
+func TestScopedMarkClearedByALaterRequestWithRoom(t *testing.T) {
+	// A family mark must not hold the family off the account for the rest of the week once that family is served with room in its bucket.
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	r := testRouter(t, &now)
+	until := now.Add(100 * time.Hour)
+	bucket := func(status, used string, sent time.Time, failed bool) {
+		rec := pluginapi.UsageRecord{AuthID: "a", Model: "claude-fable-5-1", Failed: failed, RequestedAt: sent, Latency: time.Second, ResponseHeaders: map[string][]string{
+			"Anthropic-Ratelimit-Unified-7d_oi-Status":      {status},
+			"Anthropic-Ratelimit-Unified-7d_oi-Utilization": {used},
+			"Anthropic-Ratelimit-Unified-7d_oi-Reset":       {strconv.FormatInt(until.Unix(), 10)},
+		}}
+		if failed {
+			rec.Failure = pluginapi.UsageFailure{StatusCode: 429}
+		}
+		r.observe(rec)
+	}
+	bucket("rejected", "1.0", now, true)
+	if s, _ := r.standing("a", "claude-fable-5-1", true, now); s != unusable {
+		t.Fatalf("rejected bucket left a %v", s)
+	}
+	bucket("allowed", "0.66", now.Add(-time.Minute), false)
+	if s, _ := r.standing("a", "claude-fable-5-1", true, now); s != unusable {
+		t.Fatalf("an older request's late success lifted the family mark: %v", s)
+	}
+	r.observe(pluginapi.UsageRecord{AuthID: "a", Model: "claude-fable-5-1", RequestedAt: now.Add(time.Minute)})
+	if s, _ := r.standing("a", "claude-fable-5-1", true, now); s != unusable {
+		t.Fatalf("a success without the bucket's headers lifted the family mark before its reset: %v", s)
+	}
+	bucket("allowed", "0.66", now.Add(time.Minute), false)
+	if s, why := r.standing("a", "claude-fable-5-1", true, now.Add(time.Minute)); s != ready {
+		t.Fatalf("a later success with room in the bucket did not lift the family mark: %v %s", s, why)
+	}
+	if a := r.st.Accounts["a"]; len(a.ModelFullUntil) != 0 || len(a.ModelFullSince) != 0 {
+		t.Fatalf("family mark kept: %v %v", a.ModelFullUntil, a.ModelFullSince)
+	}
+}
+
 func TestRejectedWeeklyClaimMovesBoundSessionNow(t *testing.T) {
 	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)

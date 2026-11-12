@@ -59,8 +59,11 @@ type account struct {
 	WeeklyUsed  float64   `json:"weekly_used"` // 0-1, meaningful while WeeklyReset is ahead
 	HasUsed     bool      `json:"has_used,omitempty"`
 	// FullUntil is the reset of a weekly window seen used up. It stays set after that time passes, until headers show a new window.
-	FullUntil      time.Time            `json:"full_until,omitzero"`
-	ModelFullUntil map[string]time.Time `json:"model_full_until,omitempty"` // by family; cleared by a successful request for that family after the reset
+	FullUntil time.Time `json:"full_until,omitzero"`
+	// FullSince is when the used-up mark was last set, so a later success can be told from a request that was already in flight then.
+	FullSince      time.Time            `json:"full_since,omitzero"`
+	ModelFullUntil map[string]time.Time `json:"model_full_until,omitempty"` // by family; cleared by a successful request for that family after the reset, or by one sent after the mark whose bucket shows room
+	ModelFullSince map[string]time.Time `json:"model_full_since,omitempty"` // by family, when ModelFullUntil was last set
 	AuthFailed     int                  `json:"auth_failed,omitempty"`      // 401 or 403 with no success since
 	AuthFailedAt   time.Time            `json:"auth_failed_at,omitzero"`
 	Served         bool                 `json:"served,omitempty"` // answered at least once, so missing weekly headers mean it sends none
@@ -364,33 +367,42 @@ func (r *router) observe(rec pluginapi.UsageRecord) {
 		a.WeeklyUsed, a.HasUsed = w.used, w.hasUsed
 		switch {
 		case w.full:
-			a.FullUntil = w.reset
+			a.FullUntil, a.FullSince = w.reset, answeredAt(rec, now)
 		case a.FullUntil.IsZero():
 		// Once the marked reset has passed, a window with room is the new window.
 		case !now.Before(a.FullUntil):
 			a.FullUntil = time.Time{}
 		// Before that, only a served request from another window lifts the mark. A failed one proves nothing, however its reset differs: during a vendor incident Codex has reported weekly resets days apart within minutes to hours (openai/codex#23190).
-		// Same-window successes do not count either, since a long request started before the limit was hit can finish after it; an hour covers the drift of Codex's relative resets.
+		// Same-window successes do not count by this rule, since a long request started before the limit was hit can finish after it; an hour covers the drift of Codex's relative resets. The next rule takes a same-window success only when it was sent after the mark.
 		case !rec.Failed && w.reset.Sub(a.FullUntil).Abs() > time.Hour:
-			a.FullUntil = time.Time{}
+			a.FullUntil, a.FullSince = time.Time{}, time.Time{}
+		// A served request sent after the mark, whose window shows room, means the limit was lifted inside the same window, as when a plan's weekly limit is reset by hand: the reset time stays, so the rule above never fires.
+		case !rec.Failed && w.hasUsed && w.used < 1 && sentAfter(rec, a.FullSince):
+			a.FullUntil, a.FullSince = time.Time{}, time.Time{}
 		}
 	}
 	markModelFull := func(fam string, until time.Time) {
 		if a.ModelFullUntil == nil {
 			a.ModelFullUntil = map[string]time.Time{}
 		}
+		if a.ModelFullSince == nil {
+			a.ModelFullSince = map[string]time.Time{}
+		}
 		a.ModelFullUntil[fam] = until
+		a.ModelFullSince[fam] = answeredAt(rec, now)
 	}
 	if sharedRejected {
-		a.FullUntil = sharedUntil
+		a.FullUntil, a.FullSince = sharedUntil, answeredAt(rec, now)
 	}
 	scopedUntil, scopedFull := scopedWeeklyFull(h, now)
 	switch fam := modelFamily(rec.Model); {
 	case scopedFull && fam != "":
 		markModelFull(fam, scopedUntil)
 	case !rec.Failed:
-		if fam, until, ok := a.modelFull(rec.Model); ok && !now.Before(until) {
+		// Cleared after its reset, or earlier by a request sent after the mark whose bucket shows room, so a mark that was wrong or lifted by hand does not hold the family off the account for the rest of the week.
+		if fam, until, ok := a.modelFull(rec.Model); ok && (!now.Before(until) || scopedWeeklyRoom(h) && sentAfter(rec, a.ModelFullSince[fam])) {
 			delete(a.ModelFullUntil, fam)
+			delete(a.ModelFullSince, fam)
 		}
 	}
 
@@ -486,6 +498,19 @@ func scopedWeeklyFull(h map[string][]string, now time.Time) (time.Time, bool) {
 		return now.Add(time.Duration(sec) * time.Second), true
 	}
 	return time.Time{}, false
+}
+
+// scopedWeeklyRoom reports whether the response's per-model weekly bucket shows room: a utilization under 1 that was not rejected.
+func scopedWeeklyRoom(h map[string][]string) bool {
+	const base = "Anthropic-Ratelimit-Unified-7d_oi-"
+	u, err := strconv.ParseFloat(header(h, base+"Utilization"), 64)
+	return err == nil && u >= 0 && u < 1 && !strings.EqualFold(header(h, base+"Status"), "rejected")
+}
+
+// sentAfter tells whether a request was dispatched after a mark set at since, so its success speaks for the account now and not for a moment before the mark.
+// A record with no dispatch time, or a mark with no time, proves nothing.
+func sentAfter(rec pluginapi.UsageRecord, since time.Time) bool {
+	return !rec.RequestedAt.IsZero() && !since.IsZero() && rec.RequestedAt.After(since)
 }
 
 // modelFamily reads the family of a Claude model id: claude-fable-5-1 is fable, claude-haiku-4-5-20251001 is haiku. Other ids have none.
