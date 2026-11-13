@@ -101,7 +101,11 @@ type router struct {
 }
 
 func newRouter(cfg config) *router {
-	r := &router{cfg: cfg, now: func() time.Time { return time.Now().UTC() }, st: state{Mode: cfg.Mode, Bindings: map[string]*binding{}, Accounts: map[string]*account{}, Models: map[string]string{}}}
+	return newRouterWithClock(cfg, func() time.Time { return time.Now().UTC() })
+}
+
+func newRouterWithClock(cfg config, now func() time.Time) *router {
+	r := &router{cfg: cfg, now: now, st: state{Mode: cfg.Mode, Bindings: map[string]*binding{}, Accounts: map[string]*account{}, Models: map[string]string{}}}
 	raw, err := os.ReadFile(cfg.StateFile)
 	if err != nil {
 		return r
@@ -120,14 +124,28 @@ func newRouter(cfg config) *router {
 			}
 		}
 	}
+	// A mark written before full_since existed has no time, so nothing could ever lift it before the reset. Dating it to this load lets a request sent from now on that is served with room lift it, while one already in flight still cannot.
+	loadedAt, dated := r.now(), false
 	for k, a := range loaded.Accounts {
-		if a != nil {
-			r.st.Accounts[k] = a
+		if a == nil {
+			continue
 		}
+		if !a.FullUntil.IsZero() && a.FullSince.IsZero() {
+			a.FullSince, dated = loadedAt, true
+		}
+		for fam := range a.ModelFullUntil {
+			if _, ok := a.ModelFullSince[fam]; !ok {
+				if a.ModelFullSince == nil {
+					a.ModelFullSince = map[string]time.Time{}
+				}
+				a.ModelFullSince[fam], dated = loadedAt, true
+			}
+		}
+		r.st.Accounts[k] = a
 	}
 	maps.Copy(r.st.Models, loaded.Models)
 	r.st.Recent = loaded.Recent
-	r.dirty = loaded.Mode != cfg.Mode
+	r.dirty = loaded.Mode != cfg.Mode || dated
 	return r
 }
 

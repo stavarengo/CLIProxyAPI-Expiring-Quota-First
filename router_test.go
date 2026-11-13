@@ -391,6 +391,52 @@ func TestScopedMarkClearedByALaterRequestWithRoom(t *testing.T) {
 	}
 }
 
+func TestMarksFromBeforeFullSinceAreDatedOnLoad(t *testing.T) {
+	// A state file written before full_since existed: its marks carry no time, so without one nothing could lift them before the reset.
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	reset := now.Add(40 * time.Hour)
+	cfg := defaultConfig()
+	cfg.Mode = "active"
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
+	ts := reset.Format(time.RFC3339)
+	raw := `{"mode":"active","accounts":{` +
+		`"a":{"weekly_reset":"` + ts + `","weekly_used":1,"has_used":true,"full_until":"` + ts + `"},` +
+		`"b":{"model_full_until":{"fable":"` + ts + `"}}}}`
+	if err := os.WriteFile(cfg.StateFile, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := newRouterWithClock(cfg, func() time.Time { return now })
+	if got := r.st.Accounts["a"].FullSince; !got.Equal(now) {
+		t.Fatalf("shared mark dated %v, want the load time", got)
+	}
+	if got := r.st.Accounts["b"].ModelFullSince["fable"]; !got.Equal(now) {
+		t.Fatalf("family mark dated %v, want the load time", got)
+	}
+	if !r.dirty {
+		t.Fatal("dated marks are not saved")
+	}
+	// A request already in flight at the load still proves nothing.
+	claudeWeeklyAt(r, "a", reset, "0.01", now.Add(-time.Minute), false)
+	if s, _ := r.standing("a", "", true, now); s != unusable {
+		t.Fatalf("a request sent before the load lifted the mark: %v", s)
+	}
+	claudeWeeklyAt(r, "a", reset, "0.01", now.Add(time.Minute), false)
+	if s, why := r.standing("a", "", true, now.Add(time.Minute)); s != ready {
+		t.Fatalf("a later success with room did not lift the old mark: %v %s", s, why)
+	}
+	if s, _ := r.standing("b", "claude-fable-5-1", true, now); s != unusable {
+		t.Fatalf("old family mark left b %v", s)
+	}
+	r.observe(pluginapi.UsageRecord{AuthID: "b", Model: "claude-fable-5-1", RequestedAt: now.Add(time.Minute), Latency: time.Second, ResponseHeaders: map[string][]string{
+		"Anthropic-Ratelimit-Unified-7d_oi-Status":      {"allowed"},
+		"Anthropic-Ratelimit-Unified-7d_oi-Utilization": {"0.43"},
+		"Anthropic-Ratelimit-Unified-7d_oi-Reset":       {strconv.FormatInt(reset.Unix(), 10)},
+	}})
+	if s, why := r.standing("b", "claude-fable-5-1", true, now.Add(time.Minute)); s != ready {
+		t.Fatalf("a later success with room did not lift the old family mark: %v %s", s, why)
+	}
+}
+
 func TestRejectedWeeklyClaimMovesBoundSessionNow(t *testing.T) {
 	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	r := testRouter(t, &now)
